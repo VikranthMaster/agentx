@@ -219,11 +219,10 @@ export default function PlacementIntelligence({ studentId }) {
           )}
 
           {fitResult && !analyzing && (() => {
-            const analysis = fitResult.analysis || '';
-            const score = parseFitScore(analysis);
-            const missing = parseMissingSkills(analysis);
-            // Strip the bracket line for display
-            const cleanText = analysis.replace(/\[fit_score=.*?\]$/s, '').trim();
+            const isSuccess = fitResult.status !== 'error';
+            const score = fitResult.fit_score !== undefined ? fitResult.fit_score : parseFitScore(fitResult.analysis || '');
+            const missing = fitResult.missing_skills !== undefined ? fitResult.missing_skills : parseMissingSkills(fitResult.analysis || '');
+            const displayText = fitResult.verdict || (fitResult.analysis || '').replace(/\[fit_score=.*?\]$/s, '').trim();
 
             return (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -237,7 +236,7 @@ export default function PlacementIntelligence({ studentId }) {
                       </h3>
                       <p style={{ margin: 0, fontSize: 13, color: 'var(--text-muted)' }}>{selectedJob?.company}</p>
                     </div>
-                    {score !== null && (
+                    {score !== null && isSuccess && (
                       <div style={{
                         background: scoreBg(score), color: scoreColor(score),
                         borderRadius: 14, padding: '14px 20px', textAlign: 'center',
@@ -251,7 +250,7 @@ export default function PlacementIntelligence({ studentId }) {
                   </div>
 
                   {/* Score bar */}
-                  {score !== null && (
+                  {score !== null && isSuccess && (
                     <div style={{ marginBottom: 20 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-muted)', marginBottom: 6 }}>
                         <span>Fit Score</span><span>{score}/100</span>
@@ -267,7 +266,7 @@ export default function PlacementIntelligence({ studentId }) {
                   )}
 
                   <p style={{ fontSize: 14, color: 'var(--text-body)', lineHeight: 1.7, margin: 0 }}>
-                    {fitResult.status === 'error' ? analysis : cleanText}
+                    {!isSuccess ? (fitResult.message || fitResult.analysis) : displayText}
                   </p>
                 </div>
 

@@ -36,6 +36,7 @@ def upload_syllabus(
     return {"status": "success", "message": f"Syllabus for {subject} uploaded successfully."}
 
 @router.get("/api/syllabus")
+@router.get("/api/syllabus/list")
 def get_syllabus(branch: str = None, semester: int = None):
     conn = get_db_connection()
     cursor = conn.cursor()

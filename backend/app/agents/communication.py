@@ -134,12 +134,11 @@ def _send_roadmap_email(student: dict, roadmap_content: str, topic: str) -> str:
 def communication_node(state: GraphState) -> GraphState:
     idx = state["current_step_index"]
     task = state["plan"][idx]["task"]
-    student = get_student(state["student_id"])
-
-    # Fall back to DB if mock data doesn't have this student
+    
+    from app.database import get_student_record
+    student = get_student_record(state["student_id"])
     if not student:
-        from app.database import get_student_record
-        student = get_student_record(state["student_id"]) or {"name": state["student_id"]}
+        student = get_student(state["student_id"]) or {"name": state["student_id"], "email": ""}
 
     student_name = student.get("name", state["student_id"])
     task_lower = task.lower()

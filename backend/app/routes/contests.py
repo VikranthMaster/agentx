@@ -6,10 +6,12 @@ from app.services.contest_fetchers.sync import sync_all_contests
 router = APIRouter(tags=["Competitive Programming Contests"])
 
 @router.get("/api/contests")
-def get_contests():
+def get_contests(sync: bool = False):
     try:
+        if sync:
+            sync_all_contests()
         contests = get_contests_from_db()
-        if not contests:
+        if not contests and not sync:
             sync_all_contests()
             contests = get_contests_from_db()
         return {"status": "success", "contests": contests}

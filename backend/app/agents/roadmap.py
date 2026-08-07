@@ -20,9 +20,12 @@ def roadmap_node(state: GraphState) -> GraphState:
     if prior_fit and isinstance(prior_fit, dict):
         missing_skills = prior_fit.get("missing_skills", [])
 
-    # Extract topic from task description
-    task_lower = task.lower()
-    topic = task  # default: use the full task as the topic
+    # If task is a generic orchestrator prompt, clean up topic
+    generic_phrases = ["generate roadmap", "missing skills", "roadmap for", "skill gap"]
+    if missing_skills and any(g in task.lower() for g in generic_phrases):
+        topic = f"skills: {', '.join(missing_skills[:5])}"
+    else:
+        topic = task
 
     # Record timestamp for trace
     state.setdefault("step_timestamps", {})[f"roadmap_{idx}"] = datetime.now().isoformat()

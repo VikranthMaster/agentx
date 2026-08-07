@@ -98,7 +98,6 @@ def compute_fit(
 
     skill_coverage = len(matched) / len(required_set) if required_set else 1.0
 
-    # Branch match: job.branch may be None (open to all) or a specific branch
     if not job_branch or job_branch.upper() in (student_branch or "").upper():
         branch_ok = 1.0
     else:
@@ -119,60 +118,13 @@ def compute_fit(
     }
 
 
-# ── Tool ───────────────────────────────────────────────────────────────────────
+# ── Shared verdict generator (deduplicated) ───────────────────────────────────
 
-@tool
-def check_job_fit_tool(student_id: str, job_id: int) -> str:
+def generate_fit_verdict(job: dict, fit: dict) -> str:
     """
-    Analyze whether a student is a good fit for a job BEFORE applying.
-    Returns a numeric fit score (0-100), matched skills, missing skills, and
-    a natural-language verdict. Always call this before apply_for_job_tool unless
-    the student explicitly says they already know they want to apply regardless of fit.
-
-    Args:
-        student_id: The student's roll number
-        job_id: The integer ID of the job to evaluate
+    Single shared function for generating natural language verdict from pre-computed fit numbers.
+    Used by check_job_fit_tool, placement_fit_node, and the fit-check endpoint.
     """
-    # Fetch job
-    conn = get_db_connection()
-    job_row = conn.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
-    conn.close()
-    if not job_row:
-        return f"Job ID {job_id} not found. Use get_jobs_tool to list available jobs."
-    job = dict(job_row)
-
-    # Fetch student (real DB)
-    student = get_student_record(student_id)
-    if not student:
-        return f"Student record not found for {student_id}."
-
-    # Fetch parsed resume
-    resume = get_parsed_resume(student_id)
-    if not resume:
-        return (
-            "You don't have a parsed resume on file yet. "
-            "Please upload a PDF/DOCX resume first, then call parse_resume_tool."
-        )
-
-    student_skills = resume.get("skills", [])
-    resume_score = resume.get("resume_score", 0)
-
-    # Extract required skills (cached)
-    required = extract_required_skills(job)
-
-    # Compute deterministic fit
-    fit = compute_fit(
-        student_skills=student_skills,
-        required_skills=required,
-        student_branch=student.get("branch", ""),
-        job_branch=job.get("branch"),
-        resume_score=resume_score,
-    )
-
-    # Store for roadmap agent to consume
-    set_fact(student_id, f"last_fit_check_job_{job_id}", json.dumps(fit))
-
-    # LLM only phrases what Python computed — never invents numbers
     verdict_prompt = f"""A student is considering applying to '{job['title']}' at '{job['company']}'.
 Computed fit data (use ONLY these numbers, do not invent or change them):
   fit_score: {fit['fit_score']}/100
@@ -187,7 +139,57 @@ Write exactly 3-4 sentences:
 3. Give a concrete recommendation: should they apply now, upskill first, or apply anyway because matched skills outweigh the gap?
 Be honest but encouraging. Do not repeat the raw numbers as a list — weave them into prose."""
 
-    verdict = _invoke_llm(verdict_prompt)
+    return _invoke_llm(verdict_prompt)
+
+
+# ── Tool ───────────────────────────────────────────────────────────────────────
+
+@tool
+def check_job_fit_tool(student_id: str, job_id: int) -> str:
+    """
+    Analyze whether a student is a good fit for a job BEFORE applying.
+    Returns a numeric fit score (0-100), matched skills, missing skills, and
+    a natural-language verdict. Always call this before apply_for_job_tool unless
+    the student explicitly says they already know they want to apply regardless of fit.
+
+    Args:
+        student_id: The student's roll number
+        job_id: The integer ID of the job to evaluate
+    """
+    conn = get_db_connection()
+    job_row = conn.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
+    conn.close()
+    if not job_row:
+        return f"Job ID {job_id} not found. Use get_jobs_tool to list available jobs."
+    job = dict(job_row)
+
+    student = get_student_record(student_id)
+    if not student:
+        return f"Student record not found for {student_id}."
+
+    resume = get_parsed_resume(student_id)
+    if not resume:
+        return (
+            "You don't have a parsed resume on file yet. "
+            "Please upload a PDF/DOCX resume first, then call parse_resume_tool."
+        )
+
+    student_skills = resume.get("skills", [])
+    resume_score = resume.get("resume_score", 0)
+
+    required = extract_required_skills(job)
+
+    fit = compute_fit(
+        student_skills=student_skills,
+        required_skills=required,
+        student_branch=student.get("branch", ""),
+        job_branch=job.get("branch"),
+        resume_score=resume_score,
+    )
+
+    set_fact(student_id, f"last_fit_check_job_{job_id}", json.dumps(fit))
+
+    verdict = generate_fit_verdict(job, fit)
 
     return (
         f"{verdict}\n\n"

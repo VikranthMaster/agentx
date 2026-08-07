@@ -133,7 +133,7 @@ def get_long_term_context(student_id: str, limit_per_category: int = 3) -> str:
     conn = get_db_connection()
     rows = conn.execute(
         """SELECT category, content FROM long_term_memory
-           WHERE student_id=? ORDER BY created_at DESC""",
+           WHERE student_id=? ORDER BY created_at DESC LIMIT 30""",
         (student_id,)
     ).fetchall()
     conn.close()

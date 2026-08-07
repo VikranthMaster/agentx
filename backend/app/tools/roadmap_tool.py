@@ -37,11 +37,13 @@ def _invoke_llm(prompt: str) -> str:
 def generate_roadmap_from_gaps(student_id: str, missing_skills: list[str], topic: str = "", time_budget_weeks: int = 8) -> str:
     """
     Called directly by the roadmap_node in the LangGraph when the placement_fit
-    agent has already identified missing skills. The topic is derived from the
-    missing skills list if not explicitly provided.
+    agent has already identified missing skills.
     """
-    if not topic:
-        topic = f"skills: {', '.join(missing_skills[:5])}" if missing_skills else "general placement preparation"
+    generic_phrases = ["generate roadmap", "missing skills", "roadmap for", "skill gap", "roadmap"]
+    if missing_skills and (not topic or any(g in topic.lower() for g in generic_phrases)):
+        topic = f"skills: {', '.join(missing_skills[:5])}"
+    elif not topic:
+        topic = "general placement preparation"
 
     student = get_student_record(student_id) or {}
     year = student.get("year", 3)

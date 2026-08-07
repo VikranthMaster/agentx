@@ -4,6 +4,7 @@ Placement agents:
  - placement_fit_node: NEW — job fit + gap analysis using real DB + placement_tool.py
    Writes placement_structured channel for downstream roadmap_node consumption.
 """
+import re
 from datetime import datetime
 from langchain_groq import ChatGroq
 from langchain_ollama import ChatOllama
@@ -113,7 +114,7 @@ def placement_fit_node(state: GraphState) -> GraphState:
     state.setdefault("step_timestamps", {})[f"placement_fit_{idx}"] = datetime.now().isoformat()
 
     from app.database import get_db_connection, get_student_record, get_parsed_resume
-    from app.tools.placement_tool import extract_required_skills, compute_fit
+    from app.tools.placement_tool import extract_required_skills, compute_fit, generate_fit_verdict
 
     student = get_student_record(student_id)
     if not student:
@@ -131,25 +132,49 @@ def placement_fit_node(state: GraphState) -> GraphState:
         state["current_step_index"] += 1
         return state
 
-    # Try to extract job_id from task
-    import re
-    job_id_match = re.search(r'\b(\d+)\b', task)
-    job = None
-    if job_id_match:
-        conn = get_db_connection()
-        job_row = conn.execute("SELECT * FROM jobs WHERE id=?", (int(job_id_match.group(1)),)).fetchone()
-        conn.close()
-        if job_row:
-            job = dict(job_row)
+    conn = get_db_connection()
+    all_jobs = [dict(r) for r in conn.execute("SELECT * FROM jobs ORDER BY id DESC").fetchall()]
+    conn.close()
 
+    job = None
+
+    # 1. Check for explicit job_id attribute in plan step
+    plan_step = state["plan"][idx]
+    if "job_id" in plan_step and plan_step["job_id"]:
+        try:
+            candidate_id = int(plan_step["job_id"])
+            job = next((j for j in all_jobs if j["id"] == candidate_id), None)
+        except Exception:
+            pass
+
+    # 2. Targeted regex for "job #X", "job X", "job_id X", "job 3"
     if not job:
-        # Try matching by company/title keywords in task
-        conn = get_db_connection()
-        all_jobs = [dict(r) for r in conn.execute("SELECT * FROM jobs ORDER BY id DESC").fetchall()]
-        conn.close()
+        job_patterns = [
+            r'job\s*#?\s*(\d+)',
+            r'job_id\s*=?\s*(\d+)',
+            r'#(\d+)',
+        ]
+        for pat in job_patterns:
+            m = re.search(pat, task, re.IGNORECASE)
+            if m:
+                candidate_id = int(m.group(1))
+                job = next((j for j in all_jobs if j["id"] == candidate_id), None)
+                if job:
+                    break
+
+    # 3. Match by company/title keywords
+    if not job:
         for j in all_jobs:
             if j["company"].lower() in task.lower() or j["title"].lower() in task.lower():
                 job = j
+                break
+
+    # 4. Fallback: match any number only if it matches a known job ID
+    if not job:
+        all_ids = {j["id"] for j in all_jobs}
+        for num in re.findall(r'\b(\d+)\b', task):
+            if int(num) in all_ids:
+                job = next(j for j in all_jobs if j["id"] == int(num))
                 break
 
     if not job:
@@ -171,13 +196,7 @@ def placement_fit_node(state: GraphState) -> GraphState:
         resume_score=resume_score,
     )
 
-    verdict_prompt = f"""A student is evaluating fit for '{job['title']}' at '{job['company']}'.
-Computed fit data (use ONLY these numbers):
-  fit_score: {fit['fit_score']}/100, skill_coverage: {fit['skill_coverage_pct']}%,
-  matched_skills: {fit['matched_skills']}, missing_skills: {fit['missing_skills']}
-Write 2-3 sentences stating the score and key missing skills. Be factual and concise."""
-
-    verdict = _invoke_llm(verdict_prompt)
+    verdict = generate_fit_verdict(job, fit)
     output = (
         f"{verdict}\n"
         f"[fit_score={fit['fit_score']}/100 | missing={fit['missing_skills']}]"
@@ -186,7 +205,7 @@ Write 2-3 sentences stating the score and key missing skills. Be factual and con
     # Text output for finalize_node
     state["agent_outputs"].setdefault("placement_fit", []).append(output)
 
-    # Structured channel for roadmap_node — this IS the agent-to-agent handoff
+    # Structured channel for roadmap_node — A2A handoff
     state["agent_outputs"]["placement_structured"] = fit
 
     state["plan"][idx]["status"] = "done"

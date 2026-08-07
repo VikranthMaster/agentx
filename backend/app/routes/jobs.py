@@ -223,11 +223,48 @@ def get_admin_applications():
 def fit_check(job_id: int, student_id: str):
     """
     Deterministic job-fit analysis for a student.
-    Returns fit_score, matched_skills, missing_skills, and an LLM-phrased verdict.
+    Returns fit_score, matched_skills, missing_skills, verdict, and formatted analysis.
     """
-    from app.tools.placement_tool import check_job_fit_tool
-    result = check_job_fit_tool.invoke({"student_id": student_id, "job_id": job_id})
-    return {"status": "success", "job_id": job_id, "student_id": student_id, "analysis": result}
+    import json
+    from app.database import get_db_connection, get_student_record, get_parsed_resume
+    from app.tools.placement_tool import extract_required_skills, compute_fit, generate_fit_verdict
+    from app.memory.store import set_fact
+
+    conn = get_db_connection()
+    job_row = conn.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
+    conn.close()
+    if not job_row:
+        return {"status": "error", "message": f"Job ID {job_id} not found."}
+    job = dict(job_row)
+
+    student = get_student_record(student_id)
+    if not student:
+        return {"status": "error", "message": f"Student record not found for {student_id}."}
+
+    resume = get_parsed_resume(student_id)
+    if not resume:
+        return {"status": "error", "message": "You don't have a parsed resume on file yet. Please upload and parse your resume first."}
+
+    student_skills = resume.get("skills", [])
+    resume_score = resume.get("resume_score", 0)
+    required = extract_required_skills(job)
+    fit = compute_fit(student_skills, required, student.get("branch", ""), job.get("branch"), resume_score)
+    verdict = generate_fit_verdict(job, fit)
+
+    set_fact(student_id, f"last_fit_check_job_{job_id}", json.dumps(fit))
+
+    return {
+        "status": "success",
+        "job_id": job_id,
+        "student_id": student_id,
+        "fit_score": fit["fit_score"],
+        "matched_skills": fit["matched_skills"],
+        "missing_skills": fit["missing_skills"],
+        "skill_coverage_pct": fit["skill_coverage_pct"],
+        "branch_match": fit["branch_match"],
+        "verdict": verdict,
+        "analysis": f"{verdict}\n\n[fit_score={fit['fit_score']}/100 | missing_skills={fit['missing_skills']}]"
+    }
 
 
 @router.patch("/api/jobs/applications/{app_id}/status")
