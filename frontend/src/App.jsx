@@ -12,7 +12,7 @@ import ContestTracker from './components/ContestTracker';
 import ResumeUploader from './components/ResumeUploader';
 import {
   Calendar, UserCheck, Bot, Briefcase, Users, BookOpen,
-  UserPlus, LogOut, GraduationCap, LayoutDashboard, ChevronRight, Trophy, Download, FileText
+  UserPlus, LogOut, GraduationCap, LayoutDashboard, ChevronRight, Trophy, Download, FileText, Award
 } from 'lucide-react';
 
 // ── Sidebar ─────────────────────────────────────────────────────────────────

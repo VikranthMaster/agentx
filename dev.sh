@@ -18,7 +18,7 @@ sleep 1
 
 # 1. Start FastAPI Backend from backend directory
 echo -e "${GREEN}[1/2] Launching FastAPI Backend on http://localhost:8000...${NC}"
-(cd backend && PYTHONPATH=. ../venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload) &
+(cd backend && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload) &
 BACKEND_PID=$!
 
 # 2. Start Vite Frontend
