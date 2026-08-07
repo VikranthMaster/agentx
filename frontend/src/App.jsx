@@ -171,7 +171,7 @@ function PageHeader({ user, activeTab, onTabChange }) {
           title="Click to view your shortlisted application"
         >
           <Award size={14} color="#16A34A" />
-          <span>🎉 Congratulations! You are SHORTLISTED for {shortlistedApps[0].job_title} @ {shortlistedApps[0].company}!</span>
+          <span>🎉 Congratulations! You are SHORTLISTED for {shortlistedApps[0]?.job_title || shortlistedApps[0]?.title || 'a Placement Drive'} @ {shortlistedApps[0]?.company || 'Company'}!</span>
         </div>
       )}
 
@@ -193,8 +193,12 @@ function PageHeader({ user, activeTab, onTabChange }) {
 // ── App ──────────────────────────────────────────────────────────────────────
 export default function App() {
   const [user, setUser] = useState(() => {
-    const saved = localStorage.getItem('smart_campus_user');
-    return saved ? JSON.parse(saved) : null;
+    try {
+      const saved = localStorage.getItem('smart_campus_user');
+      return saved ? JSON.parse(saved) : null;
+    } catch (e) {
+      return null;
+    }
   });
   const [activeTab, setActiveTab] = useState('');
 

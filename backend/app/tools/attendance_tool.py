@@ -105,7 +105,7 @@ def get_attendance_summary_tool(
 
     query += " GROUP BY s.id ORDER BY s.date DESC, s.period ASC"
     cursor.execute(query, params)
-    rows = cursor.fetchall()
+    rows = [dict(r) for r in cursor.fetchall()]
     conn.close()
 
     if not rows:
@@ -227,7 +227,7 @@ def get_jobs_tool(branch: Optional[str] = None) -> str:
     query += " ORDER BY id DESC"
 
     cursor.execute(query, params)
-    rows = cursor.fetchall()
+    rows = [dict(r) for r in cursor.fetchall()]
     conn.close()
 
     if not rows:
@@ -271,7 +271,7 @@ def get_job_applications_tool(job_id: Optional[int] = None) -> str:
     query += " ORDER BY ja.applied_at DESC"
 
     cursor.execute(query, params)
-    rows = cursor.fetchall()
+    rows = [dict(r) for r in cursor.fetchall()]
     conn.close()
 
     if not rows:
@@ -542,7 +542,7 @@ def get_my_applications_tool(student_id: str) -> str:
         WHERE ja.student_id = ?
         ORDER BY ja.applied_at DESC
     """, (student_id,))
-    rows = cursor.fetchall()
+    rows = [dict(r) for r in cursor.fetchall()]
     conn.close()
     if not rows:
         return "You haven't applied to any jobs yet."
@@ -575,7 +575,7 @@ def get_syllabus_tool(branch: str = "CSE", semester: Optional[int] = None) -> st
     query += " ORDER BY semester ASC, subject ASC"
 
     cursor.execute(query, params)
-    rows = cursor.fetchall()
+    rows = [dict(r) for r in cursor.fetchall()]
     conn.close()
 
     if not rows:
