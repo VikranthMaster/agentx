@@ -1,0 +1,31 @@
+{
+  "s1": {
+    "name": "Vikky",
+    "branch": "CSE (AI/ML)",
+    "year": 2,
+    "cgpa": 8.65,
+    "attendance": {
+      "Data Structures": 82,
+      "Operating Systems": 71,
+      "Machine Learning": 90,
+      "DBMS": 65
+    },
+    "timetable": {
+      "Monday": ["Data Structures - 9AM", "DBMS - 11AM"],
+      "Tuesday": ["Machine Learning - 10AM", "Operating Systems - 1PM"]
+    }
+  },
+  "s2": {
+    "name": "Test Student Two",
+    "branch": "CSE",
+    "year": 3,
+    "cgpa": 7.9,
+    "attendance": {
+      "Data Structures": 55,
+      "Networks": 88
+    },
+    "timetable": {
+      "Wednesday": ["Networks - 9AM"]
+    }
+  }
+}

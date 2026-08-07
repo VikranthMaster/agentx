@@ -1,0 +1,48 @@
+{
+  "emails": [],
+  "notifications": [],
+  "calendar": [
+    {
+      "student_id": "s2",
+      "event": "add Microsoft internship workshop to calendar",
+      "remind_before": "1 hour before",
+      "created_at": "2026-08-07T13:20:10.030224"
+    },
+    {
+      "student_id": "s2",
+      "event": "set reminder 1 hour before Microsoft internship workshop",
+      "remind_before": "1 hour before",
+      "created_at": "2026-08-07T13:20:10.030960"
+    },
+    {
+      "student_id": "s2",
+      "event": "add Microsoft internship workshop to calendar",
+      "remind_before": "1 hour before",
+      "created_at": "2026-08-07T13:24:02.557898"
+    },
+    {
+      "student_id": "s2",
+      "event": "set reminder one hour before Microsoft internship workshop",
+      "remind_before": "1 hour before",
+      "created_at": "2026-08-07T13:24:02.558652"
+    },
+    {
+      "student_id": "s2",
+      "event": "add Microsoft workshop to calendar",
+      "remind_before": "1 hour before",
+      "created_at": "2026-08-07T13:45:35.533775"
+    },
+    {
+      "student_id": "s2",
+      "event": "add Microsoft workshop to calendar",
+      "remind_before": "1 hour before",
+      "created_at": "2026-08-07T13:46:35.802582"
+    },
+    {
+      "student_id": "s2",
+      "event": "set reminder 1 hour before Microsoft workshop",
+      "remind_before": "1 hour before",
+      "created_at": "2026-08-07T13:46:48.881098"
+    }
+  ]
+}

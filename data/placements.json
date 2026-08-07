@@ -1,0 +1,49 @@
+{
+  "companies": [
+    {
+      "name": "Google",
+      "role": "SWE Intern",
+      "min_cgpa": 8.0,
+      "eligible_branches": [
+        "CSE",
+        "CSE (AI/ML)",
+        "IT"
+      ],
+      "min_year": 3,
+      "backlogs_allowed": 0
+    },
+    {
+      "name": "Microsoft",
+      "role": "SWE Intern",
+      "min_cgpa": 7.5,
+      "eligible_branches": [
+        "CSE",
+        "CSE (AI/ML)",
+        "ECE",
+        "IT"
+      ],
+      "min_year": 2,
+      "backlogs_allowed": 1
+    }
+  ],
+  "events": [
+    {
+      "id": "evt1",
+      "company": "Google",
+      "name": "Google Placement Workshop",
+      "date": "2026-08-08",
+      "time": "10:00 AM",
+      "registered_students": []
+    },
+    {
+      "id": "evt2",
+      "company": "Microsoft",
+      "name": "Microsoft Placement Workshop",
+      "date": "2026-08-09",
+      "time": "2:00 PM",
+      "registered_students": [
+        "s2"
+      ]
+    }
+  ]
+}
