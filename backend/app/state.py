@@ -14,3 +14,4 @@ class GraphState(TypedDict):
     agent_outputs: Dict[str, Any]     # keyed by agent name
     final_response: Optional[str]
     error: Optional[str]
+    step_timestamps: Dict[str, str]   # agent_name → ISO timestamp, for trace visibility

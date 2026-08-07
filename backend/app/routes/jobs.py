@@ -219,6 +219,17 @@ def get_admin_applications():
     conn.close()
     return {"applications": rows}
 
+@router.post("/api/jobs/{job_id}/fit-check")
+def fit_check(job_id: int, student_id: str):
+    """
+    Deterministic job-fit analysis for a student.
+    Returns fit_score, matched_skills, missing_skills, and an LLM-phrased verdict.
+    """
+    from app.tools.placement_tool import check_job_fit_tool
+    result = check_job_fit_tool.invoke({"student_id": student_id, "job_id": job_id})
+    return {"status": "success", "job_id": job_id, "student_id": student_id, "analysis": result}
+
+
 @router.patch("/api/jobs/applications/{app_id}/status")
 def update_application_status(app_id: int, body: dict):
     status = body.get("status")

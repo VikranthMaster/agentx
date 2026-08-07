@@ -5,14 +5,23 @@ import ThinkingTrace from './ThinkingTrace';
 export default function AdminChatbot({ user }) {
   const adminId = user?.id || 'admin';
 
+  const storageKey = `smart_campus_admin_chat_draft_${adminId || 'admin'}`;
+
   const [messages, setMessages] = useState([{
     sender: 'bot',
     text: `Hello! I'm your Admin AI Assistant (Groq + LangChain Tool Calling).\n\nWhat I can do:\n• Post placement drive — "Post a placement drive for Senior Software Engineer at Google, requirements: Python, React, DSA, branch: CSE"\n• Post attendance — "Post attendance for System Design on 2026-08-07 period 3, CSE section A — 1602-24-733-160 and 1602-24-733-161 were present"\n• Register a student — "Register student Ravi Kumar, 1602-24-733-165, CSE section A, year 2"\n• List students — "Show me students in CSE section A"\n• View applications — "Show all job applications"\n• Check contests — "Show upcoming Codeforces contests"`
   }]);
-  const [input, setInput] = useState('');
+  const [input, setInput] = useState(() => {
+    try { return localStorage.getItem(storageKey) || ''; } catch { return ''; }
+  });
+
+  useEffect(() => {
+    try { localStorage.setItem(storageKey, input); } catch {}
+  }, [input, storageKey]);
+
   const [loading, setLoading] = useState(false);
   const [showThinking, setShowThinking] = useState(false);
-  const [modelStatus, setModelStatus] = useState("Groq llama-3.3-70b"); // <-- ADD THIS
+  const [modelStatus, setModelStatus] = useState("Groq llama-3.3-70b");
   const bottomRef = useRef(null);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, showThinking]);

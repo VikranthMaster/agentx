@@ -16,6 +16,10 @@ import {
   Plus, MessageSquare, ChevronDown, FileSearch
 } from 'lucide-react';
 import AdminExamAssessor from './components/AdminExamAssessor';
+import NewsletterManager from './components/NewsletterManager';
+import HackathonHub from './components/HackathonHub';
+import PlacementIntelligence from './components/PlacementIntelligence';
+import RoadmapGenerator from './components/RoadmapGenerator';
 
 // ── Sidebar ─────────────────────────────────────────────────────────────────
 function Sidebar({ user, activeTab, onTabChange, onLogout, currentSession, setCurrentSession }) {
@@ -28,21 +32,27 @@ function Sidebar({ user, activeTab, onTabChange, onLogout, currentSession, setCu
   const adminNav = [
     { id: 'admin_chat',       label: 'AI Assistant',         icon: Bot },
     { id: 'post_attendance',  label: 'Post Attendance',       icon: UserCheck },
-    { id: 'exam_assessor',    label: 'Grade Exams (OCR)',     icon: FileSearch }, // <-- ADD THIS
+    { id: 'exam_assessor',    label: 'Grade Exams (OCR)',     icon: FileSearch },
     { id: 'students',         label: 'Register Student',      icon: UserPlus },
     { id: 'applications',     label: 'Applications (ATS)',    icon: Users },
     { id: 'post_job',         label: 'Placement Drives',      icon: Briefcase },
+    { id: 'hackathons_admin', label: 'Hackathon Hub',         icon: Trophy },
+    { id: 'newsletter',       label: 'Newsletter',            icon: GraduationCap },
     { id: 'syllabus_admin',   label: 'Upload Syllabus',       icon: BookOpen },
     { id: 'contests',         label: 'Contest Tracker',       icon: Trophy },
   ];
 
   const studentNav = [
-    { id: 'chat',           label: 'AI Assistant',     icon: Bot },
-    { id: 'attendance',     label: 'My Attendance',    icon: Calendar },
-    { id: 'contests',       label: 'Contest Tracker',  icon: Trophy },
-    { id: 'jobs',           label: 'Job Drives',       icon: Briefcase },
-    { id: 'syllabus',       label: 'Syllabus',         icon: BookOpen },
-    { id: 'resume_profile', label: 'Resume Profile',   icon: FileText },
+    { id: 'chat',                label: 'AI Assistant',          icon: Bot },
+    { id: 'attendance',          label: 'My Attendance',         icon: Calendar },
+    { id: 'contests',            label: 'Contest Tracker',       icon: Trophy },
+    { id: 'jobs',                label: 'Job Drives',            icon: Briefcase },
+    { id: 'placement_intel',     label: 'Placement Intel',       icon: Award },
+    { id: 'roadmap',             label: 'Learning Roadmap',      icon: BookOpen },
+    { id: 'hackathons',          label: 'Hackathons',            icon: Trophy },
+    { id: 'newsletter_student',  label: 'Newsletter',            icon: MessageSquare },
+    { id: 'syllabus',            label: 'Syllabus',              icon: BookOpen },
+    { id: 'resume_profile',      label: 'Resume Profile',        icon: FileText },
   ];
 
   const navItems = isAdmin ? adminNav : studentNav;
@@ -187,18 +197,24 @@ function Sidebar({ user, activeTab, onTabChange, onLogout, currentSession, setCu
 
 // ── Page Header ──────────────────────────────────────────────────────────────
 const TAB_LABELS = {
-  admin_chat:      'AI Assistant',
-  post_attendance: 'Post Attendance',
-  students:        'Register Student',
-  applications:    'Applications (ATS)',
-  post_job:        'Placement Drives',
-  syllabus_admin:  'Upload Syllabus',
-  chat:            'AI Assistant',
-  attendance:      'My Attendance',
-  contests:        'Contest Tracker',
-  jobs:            'Job Drives',
-  syllabus:        'Syllabus',
-  resume_profile:  'Resume Profile',
+  admin_chat:         'AI Assistant',
+  post_attendance:    'Post Attendance',
+  students:           'Register Student',
+  applications:       'Applications (ATS)',
+  post_job:           'Placement Drives',
+  hackathons_admin:   'Hackathon Hub',
+  newsletter:         'Newsletter',
+  syllabus_admin:     'Upload Syllabus',
+  chat:               'AI Assistant',
+  attendance:         'My Attendance',
+  contests:           'Contest Tracker',
+  jobs:               'Job Drives',
+  placement_intel:    'Placement Intelligence',
+  roadmap:            'Learning Roadmap',
+  hackathons:         'Hackathons',
+  newsletter_student: 'Newsletter',
+  syllabus:           'Syllabus',
+  resume_profile:     'Resume Profile',
 };
 
 function PageHeader({ user, activeTab, onTabChange }) {
@@ -353,25 +369,70 @@ export default function App() {
         <main className="page-main">
           {!isAdmin && (
             <>
-
-              {activeTab === 'chat'           && <StudentChatbot user={user} currentSession={currentSession} />}
-              {activeTab === 'attendance'     && <StudentAttendance studentId={user.id} />}
-              {activeTab === 'contests'       && <ContestTracker />}
-              {activeTab === 'jobs'           && <JobsBoard role="student" studentId={user.id} />}
-              {activeTab === 'syllabus'       && <SyllabusManager role="student" />}
-              {activeTab === 'resume_profile' && <ResumeUploader studentId={user.id} />}
+              <div style={{ display: activeTab === 'chat' ? 'block' : 'none' }}>
+                <StudentChatbot user={user} currentSession={currentSession} />
+              </div>
+              <div style={{ display: activeTab === 'attendance' ? 'block' : 'none' }}>
+                <StudentAttendance studentId={user.id} />
+              </div>
+              <div style={{ display: activeTab === 'contests' ? 'block' : 'none' }}>
+                <ContestTracker />
+              </div>
+              <div style={{ display: activeTab === 'jobs' ? 'block' : 'none' }}>
+                <JobsBoard role="student" studentId={user.id} />
+              </div>
+              <div style={{ display: activeTab === 'placement_intel' ? 'block' : 'none' }}>
+                <PlacementIntelligence studentId={user.id} />
+              </div>
+              <div style={{ display: activeTab === 'roadmap' ? 'block' : 'none' }}>
+                <RoadmapGenerator studentId={user.id} />
+              </div>
+              <div style={{ display: activeTab === 'hackathons' ? 'block' : 'none' }}>
+                <HackathonHub role="student" studentId={user.id} />
+              </div>
+              <div style={{ display: activeTab === 'newsletter_student' ? 'block' : 'none' }}>
+                <NewsletterManager role="student" studentId={user.id} studentEmail={user.email} />
+              </div>
+              <div style={{ display: activeTab === 'syllabus' ? 'block' : 'none' }}>
+                <SyllabusManager role="student" />
+              </div>
+              <div style={{ display: activeTab === 'resume_profile' ? 'block' : 'none' }}>
+                <ResumeUploader studentId={user.id} />
+              </div>
             </>
           )}
           {isAdmin && (
             <>
-              {activeTab === 'admin_chat'      && <AdminChatbot user={user} currentSession={currentSession} />}
-              {activeTab === 'exam_assessor'   && <AdminExamAssessor />} {/* <-- ADD THIS */}
-              {activeTab === 'post_attendance' && <AdminAttendancePoster user={user} />}
-              {activeTab === 'students'        && <AdminStudentManager />}
-              {activeTab === 'applications'    && <AdminApplications />}
-              {activeTab === 'post_job'        && <JobsBoard role="admin" studentId={user.id} />}
-              {activeTab === 'syllabus_admin'  && <SyllabusManager role="admin" />}
-              {activeTab === 'contests'        && <ContestTracker />}
+              <div style={{ display: activeTab === 'admin_chat' ? 'block' : 'none' }}>
+                <AdminChatbot user={user} currentSession={currentSession} />
+              </div>
+              <div style={{ display: activeTab === 'exam_assessor' ? 'block' : 'none' }}>
+                <AdminExamAssessor />
+              </div>
+              <div style={{ display: activeTab === 'post_attendance' ? 'block' : 'none' }}>
+                <AdminAttendancePoster user={user} />
+              </div>
+              <div style={{ display: activeTab === 'students' ? 'block' : 'none' }}>
+                <AdminStudentManager />
+              </div>
+              <div style={{ display: activeTab === 'applications' ? 'block' : 'none' }}>
+                <AdminApplications />
+              </div>
+              <div style={{ display: activeTab === 'post_job' ? 'block' : 'none' }}>
+                <JobsBoard role="admin" studentId={user.id} />
+              </div>
+              <div style={{ display: activeTab === 'hackathons_admin' ? 'block' : 'none' }}>
+                <HackathonHub role="admin" studentId={user.id} />
+              </div>
+              <div style={{ display: activeTab === 'newsletter' ? 'block' : 'none' }}>
+                <NewsletterManager role="admin" />
+              </div>
+              <div style={{ display: activeTab === 'syllabus_admin' ? 'block' : 'none' }}>
+                <SyllabusManager role="admin" />
+              </div>
+              <div style={{ display: activeTab === 'contests' ? 'block' : 'none' }}>
+                <ContestTracker />
+              </div>
             </>
           )}
         </main>

@@ -123,6 +123,89 @@ def init_db():
     );
     """)
 
+    # ── Newsletter ─────────────────────────────────────────────────────────
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS newsletter_subscribers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        email TEXT UNIQUE NOT NULL,
+        student_id TEXT,
+        subscribed_at TEXT NOT NULL,
+        active INTEGER NOT NULL DEFAULT 1
+    );
+    """)
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS newsletter_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sent_date TEXT NOT NULL,
+        recipients_count INTEGER,
+        created_at TEXT NOT NULL
+    );
+    """)
+
+    # ── Long-Term Memory ───────────────────────────────────────────────────
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS long_term_memory (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        student_id TEXT NOT NULL,
+        category TEXT NOT NULL,
+        content TEXT NOT NULL,
+        confidence REAL DEFAULT 1.0,
+        source_session_id TEXT,
+        created_at TEXT NOT NULL
+    );
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_ltm_student ON long_term_memory(student_id, category)")
+
+    # ── Job Skill Cache (Placement Intelligence) ───────────────────────────
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS job_skill_cache (
+        job_id INTEGER PRIMARY KEY,
+        required_skills TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+    """)
+
+    # ── Saved Roadmaps ─────────────────────────────────────────────────────
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS saved_roadmaps (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        student_id TEXT NOT NULL,
+        topic TEXT NOT NULL,
+        content TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    );
+    """)
+
+    # ── Hackathons ─────────────────────────────────────────────────────────
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS hackathons (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        description TEXT NOT NULL,
+        tech_focus TEXT,
+        start_date TEXT NOT NULL,
+        end_date TEXT NOT NULL,
+        registration_deadline TEXT NOT NULL,
+        team_size_max INTEGER DEFAULT 4,
+        posted_by TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    );
+    """)
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS hackathon_applications (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        hackathon_id INTEGER NOT NULL,
+        student_id TEXT NOT NULL,
+        team_name TEXT,
+        idea_summary TEXT,
+        status TEXT NOT NULL DEFAULT 'REGISTERED',
+        applied_at TEXT NOT NULL,
+        FOREIGN KEY (hackathon_id) REFERENCES hackathons(id) ON DELETE CASCADE
+    );
+    """)
+
     conn.commit()
     seed_initial_data(conn)
     conn.close()
@@ -286,4 +369,148 @@ def get_contests_from_db(platform: str = None) -> list[dict]:
             r["division_types"] = []
         r["has_solution_video"] = bool(r.get("has_solution_video"))
     return rows
+
+
+# ── Newsletter helpers ─────────────────────────────────────────────────────────
+
+def add_newsletter_subscriber(email: str, student_id: str | None = None):
+    conn = get_db_connection()
+    try:
+        conn.execute(
+            """INSERT INTO newsletter_subscribers (email, student_id, subscribed_at, active)
+               VALUES (?, ?, ?, 1)
+               ON CONFLICT(email) DO UPDATE SET active=1, student_id=excluded.student_id""",
+            (email, student_id, datetime.now().isoformat())
+        )
+        conn.commit()
+    except Exception:
+        conn.execute(
+            "UPDATE newsletter_subscribers SET active=1, student_id=? WHERE email=?",
+            (student_id, email)
+        )
+        if conn.total_changes == 0:
+            conn.execute(
+                "INSERT INTO newsletter_subscribers (email, student_id, subscribed_at, active) VALUES (?, ?, ?, 1)",
+                (email, student_id, datetime.now().isoformat())
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def remove_newsletter_subscriber(email: str):
+    conn = get_db_connection()
+    conn.execute("UPDATE newsletter_subscribers SET active=0 WHERE email=?", (email,))
+    conn.commit()
+    conn.close()
+
+
+def get_active_subscribers() -> list[str]:
+    conn = get_db_connection()
+    rows = conn.execute(
+        "SELECT email FROM newsletter_subscribers WHERE active=1"
+    ).fetchall()
+    conn.close()
+    return [r["email"] for r in rows]
+
+
+def already_sent_today() -> bool:
+    conn = get_db_connection()
+    row = conn.execute(
+        "SELECT 1 FROM newsletter_log WHERE sent_date = date('now') LIMIT 1"
+    ).fetchone()
+    conn.close()
+    return row is not None
+
+
+def log_newsletter_sent(count: int):
+    conn = get_db_connection()
+    conn.execute(
+        "INSERT INTO newsletter_log (sent_date, recipients_count, created_at) VALUES (date('now'), ?, ?)",
+        (count, datetime.now().isoformat())
+    )
+    conn.commit()
+    conn.close()
+
+
+# ── Job skill cache helpers ────────────────────────────────────────────────────
+
+def get_cached_job_skills(job_id: int) -> list[str] | None:
+    import json
+    conn = get_db_connection()
+    row = conn.execute(
+        "SELECT required_skills FROM job_skill_cache WHERE job_id=?", (job_id,)
+    ).fetchone()
+    conn.close()
+    if row:
+        try:
+            return json.loads(row["required_skills"])
+        except Exception:
+            return None
+    return None
+
+
+def cache_job_skills(job_id: int, skills: list[str]):
+    import json
+    conn = get_db_connection()
+    conn.execute(
+        """INSERT INTO job_skill_cache (job_id, required_skills, updated_at)
+           VALUES (?, ?, ?)
+           ON CONFLICT(job_id) DO UPDATE SET required_skills=excluded.required_skills, updated_at=excluded.updated_at""",
+        (job_id, json.dumps(skills), datetime.now().isoformat())
+    )
+    conn.commit()
+    conn.close()
+
+
+# ── Roadmap helpers ────────────────────────────────────────────────────────────
+
+def save_roadmap(student_id: str, topic: str, content: str):
+    conn = get_db_connection()
+    conn.execute(
+        "INSERT INTO saved_roadmaps (student_id, topic, content, created_at) VALUES (?, ?, ?, ?)",
+        (student_id, topic, content, datetime.now().isoformat())
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_student_record(student_id: str) -> dict | None:
+    """Fetch real student row from users table (not mock data)."""
+    conn = get_db_connection()
+    row = conn.execute(
+        "SELECT id, name, email, branch, section, year FROM users WHERE id=?", (student_id,)
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def get_parsed_resume(student_id: str) -> dict | None:
+    import json
+    conn = get_db_connection()
+    row = conn.execute(
+        "SELECT parsed_json, resume_score, domain FROM resumes WHERE student_id=?", (student_id,)
+    ).fetchone()
+    conn.close()
+    if not row:
+        return None
+    r = dict(row)
+    try:
+        parsed = json.loads(r.get("parsed_json") or "{}")
+    except Exception:
+        parsed = {}
+    parsed["resume_score"] = r.get("resume_score", 0)
+    parsed["domain"] = r.get("domain", "")
+    return parsed
+
+
+# ── Hackathon helpers ──────────────────────────────────────────────────────────
+
+def get_hackathon(hackathon_id: int) -> dict | None:
+    conn = get_db_connection()
+    row = conn.execute(
+        "SELECT * FROM hackathons WHERE id=?", (hackathon_id,)
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
 

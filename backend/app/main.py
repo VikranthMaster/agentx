@@ -11,6 +11,8 @@ from app.routes.resumes import router as resumes_router
 from app.routes.jobs import router as jobs_router
 from app.routes.contests import router as contests_router
 from app.routes.chat import router as chat_router
+from app.routes.newsletter import router as newsletter_router
+from app.routes.hackathons import router as hackathons_router
 
 #added this
 from app.routes.chat_logs import router as chat_logs_router
@@ -36,6 +38,13 @@ def on_startup():
     except Exception as e:
         print("[Startup] Contest sync warning:", e)
 
+    # Fire-and-forget newsletter — daemon thread, never blocks startup
+    try:
+        from app.services.newsletter_service import send_newsletter
+        send_newsletter()   # skips automatically if already sent today
+    except Exception as e:
+        print("[Startup] Newsletter warning:", e)
+
 
 @app.get("/api/health")
 def health_check():
@@ -50,6 +59,8 @@ app.include_router(resumes_router)
 app.include_router(jobs_router)
 app.include_router(contests_router)
 app.include_router(chat_router)
+app.include_router(newsletter_router)
+app.include_router(hackathons_router)
 
 #added this
 app.include_router(chat_logs_router)

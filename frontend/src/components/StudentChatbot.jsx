@@ -12,13 +12,22 @@ export default function StudentChatbot({ user, currentSession }) {
     text: `Hello ${studentName}! I'm your Campus AI Assistant.\n\nI can help you with:\n• "What is my attendance?"\n• "Show me available jobs"\n• Upload your notes (PDF/Image) to ask questions about them!\n• Upload a resume to build your profile.`
   };
 
+  const storageKey = `smart_campus_chat_draft_${studentId || 'default'}`;
+
   const [messages, setMessages] = useState([defaultWelcome]);
-  const [input, setInput] = useState('');
+  const [input, setInput] = useState(() => {
+    try { return localStorage.getItem(storageKey) || ''; } catch { return ''; }
+  });
+
+  useEffect(() => {
+    try { localStorage.setItem(storageKey, input); } catch {}
+  }, [input, storageKey]);
+
   const [file, setFile] = useState(null);
   const [loading, setLoading] = useState(false);
   const [showThinking, setShowThinking] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
-  const [modelStatus, setModelStatus] = useState("Groq llama-3.3-70b"); // <-- ADD THIS
+  const [modelStatus, setModelStatus] = useState("Groq llama-3.3-70b");
   
   const { listening, startListening, stopListening, speak } = useVoice();
   const fileRef = useRef(null);

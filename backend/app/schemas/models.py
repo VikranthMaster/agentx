@@ -53,3 +53,19 @@ class ApplyConfirmRequest(BaseModel):
     student_id: str
     tailored_file: str
 
+
+class HackathonPostRequest(BaseModel):
+    title: str
+    description: str
+    tech_focus: Optional[str] = None
+    start_date: str          # YYYY-MM-DD
+    end_date: str            # YYYY-MM-DD
+    registration_deadline: str  # YYYY-MM-DD
+    team_size_max: Optional[int] = 4
+    posted_by: str
+
+
+class HackathonApplyRequest(BaseModel):
+    student_id: str
+    team_name: Optional[str] = None
+    idea_summary: Optional[str] = None
