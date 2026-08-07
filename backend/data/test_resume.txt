@@ -1,0 +1,10 @@
+
+    Vikranth
+    Email: vikranth@example.com | Phone: 9876543210
+    Education: B.Tech in Computer Science, 2022-2026, SCIT University
+    Skills: Python, React, FastAPI, Machine Learning, PyTorch, Docker, SQL, Data Structures
+    Projects:
+    - Smart Campus ERP: Built multi-agent student management system using FastAPI, React, and LangChain.
+    - AI Resume Analyzer: Developed resume parsing pipeline using Groq LLM structured outputs.
+    Certifications: AWS Machine Learning Specialty, Coursera Deep Learning Specialization
+    

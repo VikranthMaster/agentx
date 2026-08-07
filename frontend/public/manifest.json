@@ -1,0 +1,25 @@
+{
+  "short_name": "SmartCampus",
+  "name": "Smart Campus ERP & Contest Tracker",
+  "description": "Multi-Agent Smart Campus ERP, Placement Portal & Competitive Programming Contest Tracker",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#F4F6F9",
+  "theme_color": "#0EA5E9",
+  "display": "standalone",
+  "orientation": "any",
+  "scope": "/"
+}
