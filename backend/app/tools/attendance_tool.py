@@ -4,6 +4,7 @@ Called by the LLM via tool-calling — NO keyword matching, NO if/else routing.
 """
 import json
 import os
+import re
 from typing import Optional
 from datetime import datetime, timedelta
 from langchain_core.tools import tool
@@ -15,6 +16,7 @@ from app.database import (
     get_db_connection,
     register_student,
 )
+from app.memory.store import set_fact, get_facts
 
 UPLOAD_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -52,14 +54,15 @@ def post_attendance_tool(
             branch=branch, section=section,
             posted_by=posted_by, present_student_ids=present_student_ids,
         )
-        db_students = get_students_by_branch_section(branch, section)
-        total = max(len(db_students), len(present_student_ids))
+        students = get_students_by_branch_section(branch, section)
+        total = len(students)
+        present = len(present_student_ids)
         return (
-            f"✅ Attendance posted.\n"
-            f"- Session ID: {session_id} | Date: {date} | Period: {period}\n"
-            f"- Subject: {subject} | {branch}-{section}\n"
-            f"- Present ({len(present_student_ids)}): {', '.join(present_student_ids)}\n"
-            f"- Absent: {max(0, total - len(present_student_ids))}"
+            f"✅ Attendance posted successfully (Session #{session_id}).\n"
+            f"- Subject: {subject} (Period {period})\n"
+            f"- Date: {date}\n"
+            f"- Branch/Sec: {branch}-{section}\n"
+            f"- Present: {present}/{total} students."
         )
     except Exception as e:
         return f"Error posting attendance: {e}"
@@ -67,52 +70,108 @@ def post_attendance_tool(
 
 @tool
 def get_attendance_summary_tool(
-    date: Optional[str] = None,
     branch: Optional[str] = None,
     section: Optional[str] = None,
+    date: Optional[str] = None,
 ) -> str:
     """
-    Get a summary of attendance sessions, optionally filtered by date, branch, section.
+    Get an aggregate summary of attendance records filtered by branch, section, or date.
+
+    Args:
+        branch: Branch code like 'CSE' or 'ECE'
+        section: Section letter like 'A' or 'B'
+        date: Specific date in YYYY-MM-DD format
     """
     conn = get_db_connection()
     cursor = conn.cursor()
     query = """
         SELECT s.id, s.date, s.period, s.subject, s.branch, s.section,
-               COUNT(sa.id) as total, SUM(CASE WHEN sa.status='PRESENT' THEN 1 ELSE 0 END) as present
+               COUNT(a.id) as total_students,
+               SUM(CASE WHEN a.status = 'PRESENT' THEN 1 ELSE 0 END) as present_count
         FROM attendance_sessions s
-        LEFT JOIN student_attendance sa ON s.id = sa.session_id
+        LEFT JOIN student_attendance a ON s.id = a.session_id
         WHERE 1=1
     """
     params = []
-    if date:
-        query += " AND s.date=?"; params.append(date)
     if branch:
-        query += " AND s.branch=?"; params.append(branch)
+        query += " AND s.branch = ?"
+        params.append(branch)
     if section:
-        query += " AND s.section=?"; params.append(section)
+        query += " AND s.section = ?"
+        params.append(section)
+    if date:
+        query += " AND s.date = ?"
+        params.append(date)
+
     query += " GROUP BY s.id ORDER BY s.date DESC, s.period ASC"
     cursor.execute(query, params)
     rows = cursor.fetchall()
     conn.close()
+
     if not rows:
-        return "No attendance sessions found."
-    return "\n".join(
-        f"[{r['date']} | Period {r['period']} | {r['subject']} | {r['branch']}-{r['section']}] → {r['present']}/{r['total']} present"
-        for r in rows
-    )
+        return "No attendance records found matching the given filters."
+
+    lines = ["Attendance Summary:"]
+    for r in rows:
+        present = r["present_count"] or 0
+        total = r["total_students"] or 0
+        pct = round((present / total) * 100, 1) if total > 0 else 0
+        lines.append(
+            f"- Date: {r['date']} | Period {r['period']} | {r['subject']} ({r['branch']}-{r['section']}): "
+            f"{present}/{total} Present ({pct}%)"
+        )
+    return "\n".join(lines)
 
 
 @tool
-def get_student_list_tool(branch: str, section: str) -> str:
+def get_my_attendance_tool(student_id: str) -> str:
     """
-    Get all students registered in a given branch and section.
+    Get detailed attendance history and overall percentage for a student.
+
+    Args:
+        student_id: The student's roll number
+    """
+    records = get_student_attendance(student_id)
+    if not records:
+        return f"No attendance records found for student {student_id}."
+
+    total = len(records)
+    present = sum(1 for r in records if r["status"] == "PRESENT")
+    pct = round((present / total) * 100, 1) if total > 0 else 0
+
+    lines = [
+        f"Attendance Profile for Roll Number: {student_id}",
+        f"Overall Attendance: {pct}% ({present}/{total} Periods Present)\n",
+        "Recent Period Breakdown:",
+    ]
+    for r in records[:10]:
+        status_icon = "✅ PRESENT" if r["status"] == "PRESENT" else "❌ ABSENT"
+        lines.append(
+            f"- Date: {r['date']} | Period {r['period']} | {r['subject']} — {status_icon}"
+        )
+    return "\n".join(lines)
+
+
+@tool
+def get_student_list_tool(branch: str = "CSE", section: str = "A") -> str:
+    """
+    Get all registered students for a branch and section.
+
+    Args:
+        branch: Branch code (e.g. 'CSE', 'ECE')
+        section: Section letter (e.g. 'A', 'B')
     """
     students = get_students_by_branch_section(branch, section)
     if not students:
-        return f"No students registered in {branch}-{section}."
-    lines = [f"- {s['id']}: {s['name']}" for s in students]
-    return f"Students in {branch}-{section} ({len(students)}):\n" + "\n".join(lines)
+        return f"No registered students found for {branch}-{section}."
 
+    lines = [f"Registered Students for {branch}-{section} ({len(students)} total):"]
+    for s in students:
+        lines.append(f"- Roll: {s['id']} | Name: {s['name']} | Email: {s['email']}")
+    return "\n".join(lines)
+
+
+# ── Student Registration Tool ───────────────────────────────────────────────
 
 @tool
 def register_student_tool(
@@ -120,215 +179,165 @@ def register_student_tool(
     name: str,
     email: str,
     branch: str,
-    section: str,
-    year: int,
+    section: str = "A",
+    year: int = 1,
 ) -> str:
     """
-    Register a new student in the campus ERP system.
+    Register a new student into the campus database.
 
     Args:
-        roll_no: Roll number in format 1602-YY-BRC-SRN (e.g. 1602-24-733-160)
+        roll_no: Roll number in format 1602-24-733-160
         name: Full name of the student
         email: Email address
-        branch: Branch (e.g. 'CSE', 'ECE', 'CSE (AI/ML)')
+        branch: Branch code (e.g. 'CSE', 'ECE')
         section: Section letter (e.g. 'A', 'B')
-        year: Year of study (1, 2, 3, or 4)
+        year: Academic year (1-4)
     """
     try:
-        register_student(roll_no=roll_no, name=name, email=email,
-                         branch=branch, section=section, year=year)
-        return (
-            f"✅ Student registered successfully.\n"
-            f"- Roll No: {roll_no}\n- Name: {name}\n- Branch: {branch}-{section}, Year {year}\n"
-            f"- Default login password: student"
+        register_student(
+            roll_no=roll_no,
+            name=name,
+            email=email,
+            branch=branch,
+            section=section,
+            year=year,
         )
+        return f"✅ Student {name} ({roll_no}) registered successfully in branch {branch}-{section} (Year {year})."
     except Exception as e:
         return f"Error registering student: {e}"
 
 
-@tool
-def get_job_applications_tool() -> str:
-    """Get all candidate job applications submitted to the admin portal."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT j.title, j.company, u.name, u.id as roll_no, ja.status, ja.applied_at
-        FROM job_applications ja
-        JOIN jobs j ON ja.job_id = j.id
-        JOIN users u ON ja.student_id = u.id
-        ORDER BY j.title, ja.applied_at DESC
-    """)
-    rows = cursor.fetchall()
-    conn.close()
-    if not rows:
-        return "No job applications found yet."
-    return f"Applications ({len(rows)}):\n" + "\n".join(
-        f"- {r['title']} @ {r['company']} | {r['name']} ({r['roll_no']}) | {r['status']}"
-        for r in rows
-    )
-
-
-# ── Student Tools ────────────────────────────────────────────────────────────
+# ── Placement & Job Tools ───────────────────────────────────────────────────
 
 @tool
-def get_my_attendance_tool(student_id: str) -> str:
+def get_jobs_tool(branch: Optional[str] = None) -> str:
     """
-    Get the complete period-wise attendance record for a student.
+    List all active placement drive jobs.
 
     Args:
-        student_id: The student's roll number (e.g. '1602-24-733-160')
+        branch: Filter by eligible branch (optional)
     """
-    records = get_student_attendance(student_id)
-    if not records:
-        return f"No attendance records found for {student_id} yet."
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    query = "SELECT * FROM jobs"
+    params = []
+    if branch:
+        query += " WHERE branch = ?"
+        params.append(branch)
+    query += " ORDER BY id DESC"
 
-    total = len(records)
-    present = sum(1 for r in records if r["status"] == "PRESENT")
-    pct = round((present / total) * 100, 1) if total else 0
+    cursor.execute(query, params)
+    rows = cursor.fetchall()
+    conn.close()
 
-    by_date: dict = {}
-    for r in records:
-        by_date.setdefault(r["date"], []).append(r)
+    if not rows:
+        return "No active placement drive jobs found."
 
-    lines = [f"Attendance for {student_id}: {pct}% ({present}/{total} periods present)\n"]
-    for date, sessions in sorted(by_date.items(), reverse=True):
-        lines.append(f"\n📅 {date}:")
-        for s in sorted(sessions, key=lambda x: x["period"]):
-            icon = "✅" if s["status"] == "PRESENT" else "❌"
-            lines.append(f"  Period {s['period']} — {s['subject']}: {icon} {s['status']}")
+    lines = ["Active Placement Drives:"]
+    for r in rows:
+        cal_str = f" | GCal Event: {r['calendar_link']}" if r.get("calendar_link") else ""
+        lines.append(
+            f"- Job ID #{r['id']}: {r['title']} @ {r['company']} (Branch: {r['branch']})\n"
+            f"  Requirements: {r['requirements']}{cal_str}"
+        )
     return "\n".join(lines)
 
 
 @tool
-def get_jobs_tool() -> str:
-    """Get all open placement drives posted by admin."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM jobs ORDER BY id DESC")
-    rows = cursor.fetchall()
-    conn.close()
-    if not rows:
-        return "No placement drives posted yet."
-    lines = []
-    for j in rows:
-        cal = f" | 📅 Calendar: {j['calendar_link']}" if j['calendar_link'] else ""
-        lines.append(
-            f"[JOB ID {j['id']}] {j['title']} @ {j['company']} ({j['branch']}){cal}\n"
-            f"   Description: {j['description']}\n"
-            f"   Requirements: {j['requirements']}"
-        )
-    return "\n\n".join(lines)
-
-
-@tool
-def get_syllabus_tool(branch: Optional[str] = None, semester: Optional[int] = None) -> str:
+def get_job_applications_tool(job_id: Optional[int] = None) -> str:
     """
-    Get available syllabus PDFs, optionally filtered by branch and semester.
+    View candidate job applications submitted for placement drives.
+
+    Args:
+        job_id: Filter by job ID (optional)
     """
     conn = get_db_connection()
     cursor = conn.cursor()
-    q = "SELECT * FROM syllabus WHERE 1=1"
+    query = """
+        SELECT ja.id, ja.status, ja.applied_at, ja.tailored_resume_path,
+               j.title as job_title, j.company,
+               u.id as student_id, u.name as student_name,
+               r.resume_score, r.domain
+        FROM job_applications ja
+        JOIN jobs j ON ja.job_id = j.id
+        JOIN users u ON ja.student_id = u.id
+        LEFT JOIN resumes r ON ja.resume_id = r.id
+        WHERE 1=1
+    """
     params = []
-    if branch:
-        q += " AND branch=?"; params.append(branch)
-    if semester:
-        q += " AND semester=?"; params.append(semester)
-    q += " ORDER BY id DESC"
-    cursor.execute(q, params)
+    if job_id:
+        query += " AND ja.job_id = ?"
+        params.append(job_id)
+    query += " ORDER BY ja.applied_at DESC"
+
+    cursor.execute(query, params)
     rows = cursor.fetchall()
     conn.close()
+
     if not rows:
-        return "No syllabus files found."
-    return "Syllabus PDFs:\n" + "\n".join(
-        f"- [ID {s['id']}] {s['subject']} ({s['branch']}, Sem {s['semester']}) — uploaded {s['uploaded_at'][:10]}"
-        for s in rows
-    )
+        return "No candidate job applications found."
+
+    lines = ["Candidate Job Applications:"]
+    for r in rows:
+        lines.append(
+            f"- App #{r['id']}: {r['student_name']} ({r['student_id']}) -> {r['job_title']} @ {r['company']}\n"
+            f"  Status: {r['status']} | ATS Score: {r['resume_score'] or 'N/A'}/100 | Domain: {r['domain'] or 'N/A'}"
+        )
+    return "\n".join(lines)
 
 
 @tool
-def get_my_resume_tool(student_id: str) -> str:
+def post_job_tool(
+    title: str,
+    company: str,
+    description: str,
+    requirements: str,
+    branch: str = "CSE",
+    posted_by: str = "admin",
+) -> str:
     """
-    Get the parsed resume / candidate profile for a student from the database.
+    Post a new placement drive job and sync a Google Calendar event.
 
     Args:
-        student_id: The student's roll number
+        title: Job role title
+        company: Company name
+        description: Job description
+        requirements: Requirements & tech stack
+        branch: Eligible branch
+        posted_by: Admin ID posting this job
     """
+    now = datetime.now().isoformat()
+    calendar_link = None
+
+    try:
+        from app.tools.google_calendar import create_event_with_reminder
+        start_dt = datetime.now() + timedelta(days=2)
+        summary = f"Placement Drive: {title} ({company})"
+        cal_res = create_event_with_reminder(summary=summary, start_dt=start_dt, duration_minutes=120)
+        if cal_res.get("success"):
+            calendar_link = cal_res.get("link")
+    except Exception:
+        pass
+
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM resumes WHERE student_id=?", (student_id,))
-    row = cursor.fetchone()
+    cursor.execute(
+        "INSERT INTO jobs (title, company, description, requirements, branch, posted_by, created_at, calendar_link) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (title, company, description, requirements, branch, posted_by, now, calendar_link)
+    )
+    job_id = cursor.lastrowid
+    conn.commit()
     conn.close()
 
-    if not row:
-        return (
-            f"No resume found for {student_id}. "
-            "Please upload a PDF or DOCX resume using the attachment button in this chat."
-        )
-
-    row = dict(row)  # fix: sqlite3.Row → dict so .get() works
-    try:
-        parsed = json.loads(row.get("parsed_json", "{}"))
-    except Exception:
-        parsed = {}
-
-    domain = row.get("domain") or parsed.get("domain", "N/A")
-    score = row.get("resume_score") or parsed.get("resume_score", 0)
-    skills = parsed.get("skills", [])
-    analysis = parsed.get("analysis", "N/A")
-
+    cal_note = f"\n- Google Calendar Link: {calendar_link}" if calendar_link else ""
     return (
-        f"Resume Profile for {student_id}:\n"
-        f"- Domain: {domain}\n"
-        f"- ATS Score: {score}/100\n"
-        f"- Skills: {', '.join(skills[:12]) if skills else 'None'}\n"
-        f"- AI Feedback: {analysis[:400]}"
+        f"✅ Placement Drive Posted Successfully!\n"
+        f"- Job ID: {job_id}\n"
+        f"- Title: {title} @ {company}\n"
+        f"- Eligible Branch: {branch}\n"
+        f"- Requirements: {requirements}{cal_note}"
     )
 
-
-@tool
-def apply_for_job_tool(student_id: str, job_id: int) -> str:
-    """
-    Compare the student's parsed resume with the job requirements, generate an
-    optimised tailored resume as HTML, and submit the application to the admin portal.
-
-    Args:
-        student_id: The student's roll number
-        job_id: The integer ID of the job to apply for
-    """
-    conn = get_db_connection()
-    cursor = conn.cursor()
-
-    # 1. Fetch job
-    cursor.execute("SELECT * FROM jobs WHERE id=?", (job_id,))
-    job_row = cursor.fetchone()
-    if not job_row:
-        conn.close()
-        return f"Job with ID {job_id} not found. Use get_jobs_tool to list available jobs."
-    job = dict(job_row)
-
-    # 2. Fetch student resume
-    cursor.execute("SELECT * FROM resumes WHERE student_id=?", (student_id,))
-    resume_row = cursor.fetchone()
-    if not resume_row:
-        conn.close()
-        return (
-            "You don't have a resume on file yet. "
-            "Please upload your PDF resume using the attachment button first."
-        )
-    resume_row = dict(resume_row)
-    try:
-        parsed = json.loads(resume_row.get("parsed_json", "{}"))
-    except Exception:
-        parsed = {}
-
-    # 3. Check if already applied
-    cursor.execute(
-        "SELECT id FROM job_applications WHERE job_id=? AND student_id=?",
-        (job_id, student_id)
-    )
-    if cursor.fetchone():
-        conn.close()
-        return f"You have already applied for Job ID {job_id} ({job['title']} @ {job['company']})."
 
 def generate_tailored_resume(student_id: str, job: dict) -> tuple[str, int, list[str]]:
     """Generates an ATS Tailored HTML Resume matching job requirements using Groq LLM."""
@@ -387,7 +396,6 @@ Start with <!DOCTYPE html> and end with </html>. Output ONLY valid HTML, no mark
 
         response = llm.invoke([SystemMessage(content="Output valid HTML only."), HumanMessage(content=prompt)])
         tailored_html = response.content.strip()
-        # Strip triple backticks if returned
         if tailored_html.startswith("```"):
             tailored_html = re.sub(r"^```\w*\n?", "", tailored_html)
             tailored_html = re.sub(r"\n?```$", "", tailored_html)
@@ -407,17 +415,18 @@ Start with <!DOCTYPE html> and end with </html>. Output ONLY valid HTML, no mark
 @tool
 def apply_for_job_tool(student_id: str, job_id: int) -> str:
     """
-    Apply for a placement drive job on behalf of a student.
-    Generates a tailored resume matching the job description and submits the application.
+    Step 1 of applying for a job. Generates an ATS-tailored resume preview matching
+    the job requirements. Does NOT submit anything yet — the student must review
+    the preview and explicitly confirm (e.g. "yes, submit it") before you call
+    confirm_application_tool to actually apply.
 
     Args:
         student_id: The student's roll number
-        job_id: The job ID from the jobs list
+        job_id: The integer ID of the job to apply for
     """
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    # 1. Fetch job
     cursor.execute("SELECT * FROM jobs WHERE id=?", (job_id,))
     job_row = cursor.fetchone()
     if not job_row:
@@ -425,17 +434,11 @@ def apply_for_job_tool(student_id: str, job_id: int) -> str:
         return f"Job with ID {job_id} not found. Use get_jobs_tool to list available jobs."
     job = dict(job_row)
 
-    # 2. Fetch student resume
     cursor.execute("SELECT id FROM resumes WHERE student_id=?", (student_id,))
-    resume_row = cursor.fetchone()
-    if not resume_row:
+    if not cursor.fetchone():
         conn.close()
-        return (
-            "You don't have a resume on file yet. "
-            "Please upload your PDF resume using the attachment button or in the Resume Profile tab."
-        )
+        return "You don't have a resume on file yet. Please upload a PDF or DOCX resume first."
 
-    # 3. Check if already applied
     cursor.execute(
         "SELECT id FROM job_applications WHERE job_id=? AND student_id=?",
         (job_id, student_id)
@@ -443,109 +446,186 @@ def apply_for_job_tool(student_id: str, job_id: int) -> str:
     if cursor.fetchone():
         conn.close()
         return f"You have already applied for Job ID {job_id} ({job['title']} @ {job['company']})."
+    conn.close()
 
-    # 4. Generate tailored resume HTML
     html_filename, match_score, matched_skills = generate_tailored_resume(student_id, job)
-    html_path = os.path.join(UPLOAD_DIR, html_filename)
 
-    # 5. Submit application
+    set_fact(student_id, "pending_application", json.dumps({
+        "job_id": job_id,
+        "tailored_filename": html_filename,
+        "match_score": match_score,
+        "matched_skills": matched_skills,
+    }))
+
+    return (
+        f"I've generated an ATS-tailored resume for **{job['title']}** at **{job['company']}**.\n"
+        f"- Match Score: {match_score}%\n"
+        f"- Matched Skills: {', '.join(matched_skills) if matched_skills else 'Core Requirements'}\n"
+        f"- Preview: /api/resume/tailored/{html_filename}\n\n"
+        f"Reply to confirm and I'll submit it — or tell me if you'd rather apply elsewhere."
+    )
+
+
+@tool
+def confirm_application_tool(student_id: str) -> str:
+    """
+    Step 2 of applying for a job. Actually submits the tailored resume generated by
+    apply_for_job_tool. Only call this after the student explicitly confirms.
+
+    Args:
+        student_id: The student's roll number
+    """
+    pending_raw = get_facts(student_id).get("pending_application")
+    if not pending_raw:
+        return "There's no pending application to confirm. Ask me to apply for a job first."
+
+    pending = json.loads(pending_raw)
+    job_id, html_filename = pending["job_id"], pending["tailored_filename"]
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT * FROM jobs WHERE id=?", (job_id,))
+    job_row = cursor.fetchone()
+    if not job_row:
+        conn.close()
+        set_fact(student_id, "pending_application", "")
+        return "That job is no longer available. Please choose another one."
+    job = dict(job_row)
+
+    cursor.execute(
+        "SELECT id FROM job_applications WHERE job_id=? AND student_id=?",
+        (job_id, student_id)
+    )
+    if cursor.fetchone():
+        conn.close()
+        set_fact(student_id, "pending_application", "")
+        return f"You have already applied for {job['title']} at {job['company']}."
+
+    cursor.execute("SELECT id FROM resumes WHERE student_id=?", (student_id,))
+    resume_row = cursor.fetchone()
+    resume_id = resume_row["id"] if resume_row else None
+
     now = datetime.now().isoformat()
     cursor.execute(
         """INSERT INTO job_applications (job_id, student_id, resume_id, status, applied_at, tailored_resume_path)
            VALUES (?, ?, ?, ?, ?, ?)""",
-        (job_id, student_id, resume_row["id"], "APPLIED", now, html_filename)
+        (job_id, student_id, resume_id, "APPLIED", now, html_filename)
     )
     conn.commit()
     conn.close()
+
+    set_fact(student_id, "pending_application", "")
 
     return (
         f"✅ Application submitted for **{job['title']}** at **{job['company']}**!\n"
-        f"- ATS Job Match Score: **{match_score}%**\n"
-        f"- Matched Skills: {', '.join(matched_skills) if matched_skills else 'All Core Requirements'}\n"
-        f"- Tailored Resume Preview saved at: {html_filename}"
+        f"- Tailored Resume: {html_filename}\n"
+        f"- Status: Under Review — ask me anytime with 'show my applications'."
     )
 
 
 @tool
-def get_upcoming_contests_tool(platform: Optional[str] = None) -> str:
+def get_my_applications_tool(student_id: str) -> str:
     """
-    Get upcoming competitive programming contests (Codeforces, LeetCode, CodeChef, AtCoder).
+    Get the status of all job applications the student has submitted
+    (Under Review, Accepted, or Rejected).
 
     Args:
-        platform: Optional platform name filter ('codeforces', 'leetcode', 'codechef', 'atcoder')
-    """
-    from app.database import get_contests_from_db
-    contests = get_contests_from_db(platform)
-    if not contests:
-        return f"No contests found for platform '{platform or 'all'}'."
-
-    now_iso = datetime.now().isoformat()
-    upcoming = [c for c in contests if c["end_time"] >= now_iso]
-    if not upcoming:
-        upcoming = contests[:5]
-
-    lines = []
-    for c in upcoming[:10]:
-        v_str = f" [Video Solution: {c['solution_video_url']}]" if c.get("has_solution_video") and c.get("solution_video_url") else ""
-        lines.append(
-            f"- [{c['platform'].upper()}] {c['contest_name']} | Starts: {c['start_time'][:16].replace('T', ' ')} | Link: {c['contest_url']}{v_str}"
-        )
-    return f"Upcoming Contests ({len(upcoming)} shown):\n" + "\n".join(lines)
-
-
-@tool
-def post_job_tool(
-    title: str,
-    company: str,
-    description: str,
-    requirements: str,
-    branch: str = "ALL",
-    create_calendar_event: bool = True,
-    posted_by: str = "admin",
-) -> str:
-    """
-    Post a new placement drive / job opening for students.
-
-    Args:
-        title: Job title (e.g. 'Software Engineer', 'Data Analyst')
-        company: Company name (e.g. 'Google', 'Microsoft')
-        description: Role description and responsibilities
-        requirements: Eligibility criteria and required technical skills
-        branch: Target branch ('CSE', 'ECE', 'MECH', or 'ALL')
-        create_calendar_event: Whether to generate a Google Calendar event reminder
-        posted_by: Admin ID posting this job drive
+        student_id: The student's roll number
     """
     conn = get_db_connection()
     cursor = conn.cursor()
-    now = datetime.now().isoformat()
-    calendar_link = None
+    cursor.execute("""
+        SELECT j.title, j.company, ja.status, ja.applied_at
+        FROM job_applications ja
+        JOIN jobs j ON ja.job_id = j.id
+        WHERE ja.student_id = ?
+        ORDER BY ja.applied_at DESC
+    """, (student_id,))
+    rows = cursor.fetchall()
+    conn.close()
+    if not rows:
+        return "You haven't applied to any jobs yet."
 
-    if create_calendar_event:
-        try:
-            from app.tools.google_calendar import create_event_with_reminder
-            start_dt = datetime.now() + timedelta(days=2)
-            summary = f"Placement Drive: {title} ({company})"
-            cal_res = create_event_with_reminder(summary=summary, start_dt=start_dt, duration_minutes=120)
-            if cal_res.get("success"):
-                calendar_link = cal_res.get("link")
-        except Exception as e:
-            pass
-
-    cursor.execute(
-        "INSERT INTO jobs (title, company, description, requirements, branch, posted_by, created_at, calendar_link) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        (title, company, description, requirements, branch, posted_by, now, calendar_link)
+    label = {"APPLIED": "Under Review", "SHORTLISTED": "Accepted", "REJECTED": "Rejected"}
+    return "Your Applications:\n" + "\n".join(
+        f"- {r['title']} @ {r['company']} — {label.get(r['status'], r['status'])} (applied {r['applied_at'][:10]})"
+        for r in rows
     )
-    job_id = cursor.lastrowid
-    conn.commit()
+
+
+# ── Syllabus Tools ──────────────────────────────────────────────────────────
+
+@tool
+def get_syllabus_tool(branch: str = "CSE", semester: Optional[int] = None) -> str:
+    """
+    List syllabus files uploaded for a branch and optional semester.
+
+    Args:
+        branch: Branch code (e.g. 'CSE', 'ECE')
+        semester: Semester number 1-8 (optional)
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    query = "SELECT * FROM syllabus WHERE branch = ?"
+    params = [branch]
+    if semester:
+        query += " AND semester = ?"
+        params.append(semester)
+    query += " ORDER BY semester ASC, subject ASC"
+
+    cursor.execute(query, params)
+    rows = cursor.fetchall()
     conn.close()
 
-    cal_note = f"\n- Google Calendar Link: {calendar_link}" if calendar_link else ""
+    if not rows:
+        return f"No syllabus records found for branch {branch}."
+
+    lines = [f"Syllabus Records for {branch}:"]
+    for r in rows:
+        lines.append(
+            f"- Semester {r['semester']} | Subject: {r['subject']} (Uploaded: {r['uploaded_at'][:10]})"
+        )
+    return "\n".join(lines)
+
+
+# ── Resume Tools ────────────────────────────────────────────────────────────
+
+@tool
+def get_my_resume_tool(student_id: str) -> str:
+    """
+    Get the parsed resume profile details for a student.
+
+    Args:
+        student_id: The student's roll number
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM resumes WHERE student_id=?", (student_id,))
+    row = cursor.fetchone()
+    conn.close()
+
+    if not row:
+        return f"No resume on file for student {student_id}. Please upload a PDF or DOCX resume first."
+
+    rdict = dict(row)
+    parsed = {}
+    try:
+        parsed = json.loads(rdict.get("parsed_json", "{}"))
+    except Exception:
+        pass
+
+    domain = rdict.get("domain") or parsed.get("domain", "N/A")
+    score = rdict.get("resume_score") or parsed.get("resume_score", 0)
+    skills = parsed.get("skills", [])
+    analysis = parsed.get("analysis", "N/A")
+
     return (
-        f"✅ Placement Drive Posted Successfully!\n"
-        f"- Job ID: {job_id}\n"
-        f"- Title: {title} @ {company}\n"
-        f"- Eligible Branch: {branch}\n"
-        f"- Requirements: {requirements}{cal_note}"
+        f"Resume Profile for Roll Number: {student_id}\n"
+        f"- Domain: {domain}\n"
+        f"- ATS Score: {score}/100\n"
+        f"- Extracted Skills: {', '.join(skills[:12]) if skills else 'None'}\n"
+        f"- Recruiter Feedback: {analysis[:300]}"
     )
 
 
@@ -586,3 +666,33 @@ def parse_resume_tool(student_id: str) -> str:
     )
 
 
+# ── Contest Tracking Tool ───────────────────────────────────────────────────
+
+@tool
+def get_upcoming_contests_tool(platform: Optional[str] = None) -> str:
+    """
+    Get upcoming competitive programming contests (LeetCode, Codeforces, CodeChef, AtCoder).
+
+    Args:
+        platform: Filter by platform name e.g. 'leetcode' or 'codeforces' (optional)
+    """
+    try:
+        from app.database import get_contests_from_db
+        contests = get_contests_from_db()
+        if not contests:
+            return "No upcoming contests cached. Click Sync Contests on the Contest Tracker page."
+
+        if platform:
+            contests = [c for c in contests if c.get("platform", "").lower() == platform.lower()]
+
+        if not contests:
+            return f"No upcoming contests found for platform '{platform}'."
+
+        lines = [f"Upcoming Contests ({len(contests)} total):"]
+        for c in contests[:8]:
+            dt_str = c.get("start_time", "")[:16].replace("T", " ")
+            lines.append(f"- [{c.get('platform', 'CP').upper()}] {c.get('title')} — Starts: {dt_str}")
+
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Error fetching contests: {e}"

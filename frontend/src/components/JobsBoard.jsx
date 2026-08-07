@@ -281,9 +281,15 @@ export default function JobsBoard({ role, studentId }) {
                       <td style={{ fontWeight: 600 }}>{app.job_title}</td>
                       <td>{app.company}</td>
                       <td>
-                        <span className={`badge ${app.status === 'SHORTLISTED' ? 'badge-green' : app.status === 'REJECTED' ? 'badge-amber' : 'badge-blue'}`}>
-                          {app.status}
-                        </span>
+                        {(() => {
+                          const STATUS_LABEL = { APPLIED: 'Under Review', SHORTLISTED: 'Accepted', REJECTED: 'Rejected' };
+                          const badgeClass = app.status === 'SHORTLISTED' ? 'badge-green' : app.status === 'REJECTED' ? 'badge-red' : 'badge-blue';
+                          return (
+                            <span className={`badge ${badgeClass}`}>
+                              {STATUS_LABEL[app.status] || app.status}
+                            </span>
+                          );
+                        })()}
                       </td>
                       <td style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
                         {new Date(app.applied_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}

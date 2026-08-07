@@ -63,32 +63,37 @@ def process_admin_query(admin_id: str, query: str) -> dict:
 
     # Agentic loop: LLM calls tools, we execute them, feed results back
     MAX_STEPS = 5
-    for _ in range(MAX_STEPS):
-        response = llm.invoke(messages)
-        messages.append(response)
+    try:
+        for _ in range(MAX_STEPS):
+            response = llm.invoke(messages)
+            messages.append(response)
 
-        if not response.tool_calls:
-            # LLM is done — no more tool calls
-            break
+            if not response.tool_calls:
+                # LLM is done — no more tool calls
+                break
 
-        # Execute each tool call the LLM requested
-        for tc in response.tool_calls:
-            tool_name = tc["name"]
-            tool_args = tc["args"]
+            # Execute each tool call the LLM requested
+            for tc in response.tool_calls:
+                tool_name = tc["name"]
+                tool_args = tc["args"]
 
-            # Find and invoke the matching tool
-            matched = next((t for t in ADMIN_TOOLS if t.name == tool_name), None)
-            if matched:
-                # Inject admin_id for tools that need it
-                if "posted_by" in matched.args_schema.schema().get("properties", {}):
-                    tool_args.setdefault("posted_by", admin_id)
-                tool_result = matched.invoke(tool_args)
-            else:
-                tool_result = f"Unknown tool: {tool_name}"
+                # Find and invoke the matching tool
+                matched = next((t for t in ADMIN_TOOLS if t.name == tool_name), None)
+                if matched:
+                    # Inject admin_id for tools that need it
+                    if "posted_by" in matched.args_schema.schema().get("properties", {}):
+                        tool_args.setdefault("posted_by", admin_id)
+                    tool_result = matched.invoke(tool_args)
+                else:
+                    tool_result = f"Unknown tool: {tool_name}"
 
-            messages.append(
-                ToolMessage(content=str(tool_result), tool_call_id=tc["id"])
-            )
+                messages.append(
+                    ToolMessage(content=str(tool_result), tool_call_id=tc["id"])
+                )
+    except Exception as e:
+        if "rate limit" in str(e).lower() or "429" in str(e):
+            return {"action": "agent_response", "reply": "⚠️ Groq AI API daily rate limit reached (429). Please wait a few minutes or switch API keys in .env."}
+        return {"action": "agent_response", "reply": f"Admin Assistant Error: {e}"}
 
     final_text = response.content if response.content else "Done."
     return {"action": "agent_response", "reply": final_text}
