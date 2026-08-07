@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-GROQ_API_KEY = "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"
+GROQ_API_KEY = "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"
 #ANTHROPIC_API_KEY = "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"
 ROUTER_MODEL = "openai/gpt-oss-120b"
 REASONING_MODEL = "openai/gpt-oss-120b"
