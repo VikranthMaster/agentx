@@ -116,7 +116,7 @@ function PageHeader({ user, activeTab, onTabChange }) {
         })
         .catch(err => console.error(err));
     }
-  }, [user, activeTab]);
+  }, [user?.id, isAdmin]);
 
   useEffect(() => {
     const handler = (e) => {
