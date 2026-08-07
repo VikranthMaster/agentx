@@ -1,0 +1,27 @@
+# Virtual Environments
+venv/
+env/
+ENV/
+
+# Python Cache & Compiled Files
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Node & Frontend Build Output
+node_modules/
+frontend/node_modules/
+frontend/dist/
+
+# SQLite & Upload Data (preserve database directory)
+*.db
+*.sqlite3
+backend/data/resumes/tailored_*.html
+digest.txt
+
+# OS Files
+.DS_Store
+Thumbs.db
