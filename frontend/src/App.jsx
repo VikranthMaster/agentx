@@ -200,16 +200,23 @@ export default function App() {
       return null;
     }
   });
-  const [activeTab, setActiveTab] = useState('');
+  const [activeTab, setActiveTab] = useState(() => {
+    try {
+      const saved = localStorage.getItem('smart_campus_user');
+      const u = saved ? JSON.parse(saved) : null;
+      return u ? (u.role === 'admin' ? 'admin_chat' : 'chat') : '';
+    } catch {
+      return '';
+    }
+  });
 
   useEffect(() => {
     if (user) {
       localStorage.setItem('smart_campus_user', JSON.stringify(user));
-      setActiveTab(user.role === 'admin' ? 'admin_chat' : 'chat');
     } else {
       localStorage.removeItem('smart_campus_user');
     }
-  }, [user]);
+  }, [user?.id, user?.role]);
 
   const handleLogout = () => {
     setUser(null);
