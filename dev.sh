@@ -16,6 +16,9 @@ pkill -f "uvicorn app.main" 2>/dev/null
 pkill -f "vite" 2>/dev/null
 sleep 1
 
+sudo apt-get update -y
+sudo apt-get install tesseract-ocr poppler-utils -y
+
 # 1. Start FastAPI Backend from backend directory
 echo -e "${GREEN}[1/2] Launching FastAPI Backend on http://localhost:8000...${NC}"
 (cd backend && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload) &

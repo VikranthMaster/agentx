@@ -38,6 +38,7 @@ class JobApplyRequest(BaseModel):
 class AdminChatRequest(BaseModel):
     admin_id: str
     query: str
+    session_id:str=None
 
 class StudentChatRequest(BaseModel):
     student_id: str

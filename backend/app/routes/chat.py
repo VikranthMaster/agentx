@@ -5,6 +5,9 @@ from app.schemas.models import AdminChatRequest
 from app.agents.admin_assistant import process_admin_query
 from app.agents.student_assistant import process_student_query
 from app.agents.resume_parser import parse_resume_with_llm
+#addded this
+from app.memory.chat_logger import log_message
+from app.tools.ocr_tool import extract_text
 
 router = APIRouter(tags=["AI Agents Chatbot"])
 
@@ -13,46 +16,40 @@ os.makedirs(UPLOAD_RESUME_DIR, exist_ok=True)
 
 @router.post("/api/chat/admin")
 def chat_admin(req: AdminChatRequest):
+    log_message(req.admin_id, "admin", "user", req.query, session_id=req.session_id)
     result = process_admin_query(req.admin_id, req.query)
+    log_message(req.admin_id, "admin", "assistant", result.get("reply", ""), trace=result.get("trace"), session_id=req.session_id)
     return result
 
 @router.post("/api/chat/student/multimodal")
-def chat_student_multimodal(
+async def chat_student_multimodal(
     student_id: str = Form(...),
     query: str = Form(...),
+    session_id: str = Form(None),
     file: UploadFile = File(None)
 ):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT name FROM users WHERE id=?", (student_id,))
-    row = cursor.fetchone()
-    conn.close()
-    student_name = dict(row)["name"] if row else student_id
+    # If the student attached a file, read it immediately
+    if file:
+        content = await file.read()
+        
+        try:
+            # Extract text using the OCR tool from the Exam Assessor step
+            extracted_text = extract_text(file.filename, content)
+            
+            # Inject the extracted notes directly into the prompt context for this specific message
+            if extracted_text and extracted_text.strip():
+                query += f"\n\n--- UPLOADED FILE CONTENT ({file.filename}) ---\n{extracted_text}\n--- END OF FILE ---\n\n(System Note: Answer the student's question using the text provided above.)"
+            else:
+                query += f"\n\n[System Note: Student uploaded {file.filename}, but it appeared blank or no text was found.]"
+        except Exception as e:
+            query += f"\n\n[System Note: Student uploaded {file.filename}, but text extraction failed: {str(e)}]"
 
-    if file and file.filename:
-        save_filename = f"{student_id}_{file.filename}"
-        save_path = os.path.join(UPLOAD_RESUME_DIR, save_filename)
-        with open(save_path, "wb") as f:
-            content = file.file.read()
-            f.write(content)
-
-        if any(file.filename.lower().endswith(ext) for ext in [".pdf", ".docx", ".txt"]):
-            parsed = parse_resume_with_llm(save_path, student_id)
-            score = parsed.get("resume_score", 0)
-            domain = parsed.get("domain", "N/A")
-            return {
-                "action": "parse_file",
-                "reply": (
-                    f"I've parsed your uploaded file **{file.filename}** using Groq LLM Agent.\n"
-                    f"- ATS Score: **{score}/100**\n"
-                    f"- Domain: **{domain}**\n"
-                    f"- Profile saved to campus database. Go to the Resume Profile tab to view full details."
-                ),
-                "parsed_profile": parsed,
-            }
-        else:
-            file_note = f"[Student uploaded a file: {file.filename}] "
-            query = file_note + query
-
-    result = process_student_query(student_id, query, student_name=student_name)
+    # Log the message with the appended text, then send to the agent
+    log_message(student_id, "student", "user", query, session_id=session_id)
+    
+    # Process the query (the agent will now "see" the document text inside the query string)
+    result = process_student_query(student_id, query)
+    
+    log_message(student_id, "student", "assistant", result.get("reply", ""), trace=result.get("trace"), session_id=session_id)
+    
     return result

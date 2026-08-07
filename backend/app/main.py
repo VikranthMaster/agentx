@@ -12,6 +12,10 @@ from app.routes.jobs import router as jobs_router
 from app.routes.contests import router as contests_router
 from app.routes.chat import router as chat_router
 
+#added this
+from app.routes.chat_logs import router as chat_logs_router
+from app.routes.exam_assessment import router as exam_router
+
 app = FastAPI(title="Smart Campus ERP Multi-Agent System")
 
 app.add_middleware(
@@ -46,3 +50,7 @@ app.include_router(resumes_router)
 app.include_router(jobs_router)
 app.include_router(contests_router)
 app.include_router(chat_router)
+
+#added this
+app.include_router(chat_logs_router)
+app.include_router(exam_router)

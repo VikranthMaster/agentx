@@ -37,6 +37,10 @@ def post_attendance_tool(
     posted_by: str = "admin",
 ) -> str:
     """
+    ⚠️ STOP! DO NOT CALL THIS TOOL DIRECTLY. 
+    If the admin asks to post attendance, you MUST call `stage_action_tool` first with action_type="post_attendance" and the payload. 
+    ONLY call this tool if the admin has explicitly replied "confirm" to a staged action.
+    
     Post 6-period attendance to the database.
 
     Args:
@@ -296,6 +300,10 @@ def post_job_tool(
     posted_by: str = "admin",
 ) -> str:
     """
+    ⚠️ STOP! DO NOT CALL THIS TOOL DIRECTLY. 
+    If the admin asks to post a job, you MUST call `stage_action_tool` first with action_type="post_job" and the payload.
+    ONLY call this tool if the admin has explicitly replied "confirm" to a staged action.
+
     Post a new placement drive job and sync a Google Calendar event.
 
     Args:

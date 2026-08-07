@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Bot, Send } from 'lucide-react';
+import ThinkingTrace from './ThinkingTrace';
 
 export default function AdminChatbot({ user }) {
   const adminId = user?.id || 'admin';
@@ -10,9 +11,11 @@ export default function AdminChatbot({ user }) {
   }]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showThinking, setShowThinking] = useState(false);
+  const [modelStatus, setModelStatus] = useState("Groq llama-3.3-70b"); // <-- ADD THIS
   const bottomRef = useRef(null);
 
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, showThinking]);
 
   const send = async () => {
     if (!input.trim() || loading) return;
@@ -28,7 +31,16 @@ export default function AdminChatbot({ user }) {
         body: JSON.stringify({ admin_id: adminId, query: userText })
       });
       const data = await res.json();
-      setMessages(prev => [...prev, { sender: 'bot', text: data.reply }]);
+      if (data.trace && data.trace.some(t => t.step === 'fallback')) {
+        setModelStatus("Ollama Local Fallback");
+      } else {
+        setModelStatus("Groq llama-3.3-70b");
+      }
+      setMessages(prev => [...prev, { 
+        sender: 'bot', 
+        text: data.reply, 
+        trace: data.trace 
+      }]);
     } catch {
       setMessages(prev => [...prev, { sender: 'bot', text: 'Server error. Please try again.' }]);
     } finally {
@@ -44,10 +56,19 @@ export default function AdminChatbot({ user }) {
         <div className="chat-ai-avatar"><Bot size={18} /></div>
         <div>
           <div className="chat-ai-name">Admin AI Assistant</div>
-          <div className="chat-ai-status">Groq llama-3.3-70b · Tool Calling Active</div>
+          <div className="chat-ai-status" style={{ color: modelStatus.includes("Ollama") ? "var(--amber)" : "var(--green)" }}>
+            {modelStatus} · Tool Calling Active
+          </div>
         </div>
         <div style={{ marginLeft: 'auto', fontSize: '12px', color: 'var(--text-muted)' }}>
           Logged in as: <strong>{adminId}</strong>
+          <button
+            onClick={() => setShowThinking(v => !v)}
+            className="btn-secondary btn-sm"
+            style={{ marginLeft: '10px' }}
+          >
+            {showThinking ? 'Hide' : 'Show'} Thinking
+          </button>
         </div>
       </div>
 
@@ -57,7 +78,10 @@ export default function AdminChatbot({ user }) {
             <div className="chat-msg-avatar">
               {m.sender === 'user' ? 'A' : <Bot size={14} />}
             </div>
-            <div className="chat-msg-bubble">{m.text}</div>
+            <div>
+              <div className="chat-msg-bubble">{m.text}</div>
+              {showThinking && m.trace && <ThinkingTrace trace={m.trace} />}
+            </div>
           </div>
         ))}
         {loading && (

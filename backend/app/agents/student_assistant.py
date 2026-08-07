@@ -68,47 +68,66 @@ def process_student_query(student_id: str, query: str, student_name: str = "") -
         SystemMessage(content=get_student_system_prompt(student_id, student_name or student_id)),
         HumanMessage(content=query),
     ]
+    
+    trace = [{"step": "planning", "model": "groq/llama-3.3-70b-versatile",
+            "text": "Reading student query, deciding which tools are needed."}]
 
     tailored_file = None
     MAX_STEPS = 5
-    try:
-        for _ in range(MAX_STEPS):
+    
+    for _ in range(MAX_STEPS):
+        try:
             response = llm.invoke(messages)
-            messages.append(response)
+        except Exception as e:
+            if "rate limit" in str(e).lower() or "429" in str(e):
+                from langchain_ollama import ChatOllama
+                from app.config import LOCAL_FALLBACK_MODEL
+                
+                trace.append({"step": "fallback", "text": f"Groq rate limit (429) hit. Switching to local {LOCAL_FALLBACK_MODEL}."})
+                
+                # Swap the LLM to local Ollama and retry
+                llm = ChatOllama(model=LOCAL_FALLBACK_MODEL, temperature=0).bind_tools(STUDENT_TOOLS)
+                try:
+                    response = llm.invoke(messages)
+                except Exception as fallback_e:
+                    trace.append({"step": "error", "text": f"Local fallback failed: {fallback_e}"})
+                    return {"action": "agent_response", "reply": f"AI Assistant Error (Fallback failed): {fallback_e}", "tailored_file": tailored_file, "trace": trace}
+            else:
+                trace.append({"step": "error", "text": str(e)})
+                return {"action": "agent_response", "reply": f"AI Assistant Error: {e}", "tailored_file": tailored_file, "trace": trace}
 
-            if not response.tool_calls:
-                break
+        messages.append(response)
 
-            for tc in response.tool_calls:
-                tool_name = tc["name"]
-                tool_args = tc["args"]
+        # Break if LLM is done calling tools
+        if not hasattr(response, 'tool_calls') or not response.tool_calls:
+            break
 
-                matched = next((t for t in STUDENT_TOOLS if t.name == tool_name), None)
-                if matched:
-                    if "student_id" in matched.args_schema.schema().get("properties", {}):
-                        tool_args["student_id"] = student_id
-                    
+        for tc in response.tool_calls:
+            tool_name = tc["name"]
+            tool_args = tc.get("args", {})
+            trace.append({"step": "tool_call", "tool": tool_name, "args": tool_args})
+
+            matched = next((t for t in STUDENT_TOOLS if t.name == tool_name), None)
+            if matched:
+                if "student_id" in matched.args_schema.schema().get("properties", {}):
+                    tool_args["student_id"] = student_id
+                
+                try:
                     tool_result = matched.invoke(tool_args)
-
                     tool_result_str = str(tool_result)
                     if "tailored_" in tool_result_str:
                         m = re.search(r"(tailored_[\w.-]+\.html)", tool_result_str)
                         if m:
                             tailored_file = m.group(1)
-                else:
-                    tool_result = f"Unknown tool: {tool_name}"
-
-                messages.append(
-                    ToolMessage(content=str(tool_result), tool_call_id=tc["id"])
-                )
-    except Exception as e:
-        if "rate limit" in str(e).lower() or "429" in str(e):
-            return {
-                "action": "agent_response",
-                "reply": "⚠️ Groq AI API daily rate limit reached (429). Please wait a few minutes or switch API keys in .env.",
-                "tailored_file": None
-            }
-        return {"action": "agent_response", "reply": f"AI Assistant Error: {e}", "tailored_file": None}
+                except Exception as te:
+                    tool_result_str = f"Tool execution failed: {te}"
+            else:
+                tool_result_str = f"Unknown tool: {tool_name}"
+            
+            trace.append({"step": "tool_result", "tool": tool_name, "result": tool_result_str[:400]})
+            messages.append(
+                ToolMessage(content=tool_result_str, tool_call_id=tc.get("id", "local_id"))
+            )
 
     last_tool_output = None
     for msg in reversed(messages):
@@ -116,5 +135,12 @@ def process_student_query(student_id: str, query: str, student_name: str = "") -
             last_tool_output = msg.content
             break
 
-    final_text = response.content if (response.content and response.content.strip() not in ("", "Done.")) else (last_tool_output or "Done.")
-    return {"action": "agent_response", "reply": final_text, "tailored_file": tailored_file}
+    final_text = response.content if (hasattr(response, 'content') and response.content and response.content.strip() not in ("", "Done.")) else (last_tool_output or "Done.")
+    trace.append({"step": "final", "text": final_text})
+    
+    return {
+        "action": "agent_response", 
+        "reply": final_text, 
+        "tailored_file": tailored_file,
+        "trace": trace
+    }

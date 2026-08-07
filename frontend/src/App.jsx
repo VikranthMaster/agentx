@@ -12,17 +12,23 @@ import ContestTracker from './components/ContestTracker';
 import ResumeUploader from './components/ResumeUploader';
 import {
   Calendar, UserCheck, Bot, Briefcase, Users, BookOpen,
-  UserPlus, LogOut, GraduationCap, LayoutDashboard, ChevronRight, Trophy, Download, FileText, Award
+  UserPlus, LogOut, GraduationCap, ChevronRight, Trophy, Download, FileText, Award,
+  Plus, MessageSquare, ChevronDown, FileSearch
 } from 'lucide-react';
+import AdminExamAssessor from './components/AdminExamAssessor';
 
 // ── Sidebar ─────────────────────────────────────────────────────────────────
-function Sidebar({ user, activeTab, onTabChange, onLogout }) {
+function Sidebar({ user, activeTab, onTabChange, onLogout, currentSession, setCurrentSession }) {
   const isAdmin = user?.role === 'admin';
   const initials = (user?.name || 'U').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+
+  const [pastChats, setPastChats] = useState([]);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(true);
 
   const adminNav = [
     { id: 'admin_chat',       label: 'AI Assistant',         icon: Bot },
     { id: 'post_attendance',  label: 'Post Attendance',       icon: UserCheck },
+    { id: 'exam_assessor',    label: 'Grade Exams (OCR)',     icon: FileSearch }, // <-- ADD THIS
     { id: 'students',         label: 'Register Student',      icon: UserPlus },
     { id: 'applications',     label: 'Applications (ATS)',    icon: Users },
     { id: 'post_job',         label: 'Placement Drives',      icon: Briefcase },
@@ -41,8 +47,38 @@ function Sidebar({ user, activeTab, onTabChange, onLogout }) {
 
   const navItems = isAdmin ? adminNav : studentNav;
 
+  // Fetch chat history for the sidebar
+  useEffect(() => {
+    if (!user?.id) return;
+    
+    fetch(`/api/chat-logs/${user.id}`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.logs && data.logs.length > 0) {
+          const sessions = {};
+          data.logs.forEach(log => {
+            const sId = log.session_id || 'default';
+            if (!sessions[sId]) sessions[sId] = [];
+            sessions[sId].push(log);
+          });
+
+          const history = Object.keys(sessions).map(sId => {
+            const userMsgs = sessions[sId].filter(m => m.role === 'user');
+            const title = userMsgs.length > 0 ? userMsgs[0].content : 'New Conversation';
+            return {
+              id: sId,
+              title: title.length > 30 ? title.substring(0, 30) + '...' : title
+            };
+          }).reverse(); 
+          
+          setPastChats(history);
+        }
+      })
+      .catch(err => console.error("Failed to load chat history:", err));
+  }, [user, currentSession, activeTab]);
+
   return (
-    <aside className="sidebar">
+    <aside className="sidebar" style={{ display: 'flex', flexDirection: 'column' }}>
       {/* Brand */}
       <div className="sidebar-brand">
         <div className="sidebar-brand-icon">SC</div>
@@ -52,18 +88,83 @@ function Sidebar({ user, activeTab, onTabChange, onLogout }) {
         </div>
       </div>
 
-      {/* Nav */}
-      <div className="sidebar-section">{isAdmin ? 'Administration' : 'Student Portal'}</div>
-      {navItems.map(({ id, label, icon: Icon }) => (
-        <button
-          key={id}
-          className={`sidebar-item ${activeTab === id ? 'active' : ''}`}
-          onClick={() => onTabChange(id)}
-        >
-          <Icon size={15} />
-          {label}
-        </button>
-      ))}
+      <div style={{ flex: 1, overflowY: 'auto' }}>
+        {/* Nav */}
+        <div className="sidebar-section">{isAdmin ? 'Administration' : 'Student Portal'}</div>
+        {navItems.map(({ id, label, icon: Icon }) => (
+          <button
+            key={id}
+            className={`sidebar-item ${activeTab === id ? 'active' : ''}`}
+            onClick={() => onTabChange(id)}
+          >
+            <Icon size={15} />
+            {label}
+          </button>
+        ))}
+
+        {/* --- Chat History Section --- */}
+        <div style={{ padding: '0 12px', marginTop: '24px' }}>
+          <button
+            onClick={() => {
+              onTabChange(isAdmin ? 'admin_chat' : 'chat');
+              setCurrentSession(Date.now().toString());
+            }}
+            style={{
+              width: '100%', display: 'flex', alignItems: 'center', gap: '8px',
+              padding: '10px 12px', background: 'var(--blue-light)',
+              border: '1px solid var(--blue-dark)', borderRadius: '8px', color: 'var(--blue-dark)',
+              fontSize: '13px', fontWeight: 600, cursor: 'pointer', marginBottom: '16px'
+            }}
+          >
+            <Plus size={16} /> New Chat
+          </button>
+
+          <div
+            onClick={() => setIsHistoryOpen(!isHistoryOpen)}
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              cursor: 'pointer', fontSize: '11px', fontWeight: 700,
+              color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px',
+              marginBottom: '8px', padding: '0 4px'
+            }}
+          >
+            Previous Convos
+            {isHistoryOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          </div>
+
+          {isHistoryOpen && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+              {pastChats.map(chat => (
+                <button
+                  key={chat.id}
+                  onClick={() => {
+                    onTabChange(isAdmin ? 'admin_chat' : 'chat');
+                    setCurrentSession(chat.id);
+                  }}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '8px',
+                    padding: '8px',
+                    background: currentSession === chat.id && (activeTab === 'chat' || activeTab === 'admin_chat') ? 'rgba(255,255,255,0.1)' : 'transparent',
+                    border: 'none', borderRadius: '6px',
+                    color: currentSession === chat.id && (activeTab === 'chat' || activeTab === 'admin_chat') ? '#fff' : 'var(--text-muted)',
+                    fontSize: '13px', textAlign: 'left', cursor: 'pointer',
+                    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'
+                  }}
+                  onMouseOver={e => e.currentTarget.style.color = '#fff'}
+                  onMouseOut={e => {
+                     if (!(currentSession === chat.id && (activeTab === 'chat' || activeTab === 'admin_chat'))) {
+                       e.currentTarget.style.color = 'var(--text-muted)';
+                     }
+                  }}
+                >
+                  <MessageSquare size={14} style={{ flexShrink: 0 }} />
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{chat.title}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* User footer */}
       <div className="sidebar-footer">
@@ -200,6 +301,7 @@ export default function App() {
       return null;
     }
   });
+  
   const [activeTab, setActiveTab] = useState(() => {
     try {
       const saved = localStorage.getItem('smart_campus_user');
@@ -210,6 +312,10 @@ export default function App() {
     }
   });
 
+  // Track the current chat session universally
+  const [currentSession, setCurrentSession] = useState(() => {
+      return localStorage.getItem('active_chat_session') || Date.now().toString();
+    });
   useEffect(() => {
     if (user) {
       localStorage.setItem('smart_campus_user', JSON.stringify(user));
@@ -217,6 +323,9 @@ export default function App() {
       localStorage.removeItem('smart_campus_user');
     }
   }, [user?.id, user?.role]);
+  useEffect(() => {
+    localStorage.setItem('active_chat_session', currentSession);
+  }, [currentSession]);
 
   const handleLogout = () => {
     setUser(null);
@@ -229,7 +338,14 @@ export default function App() {
 
   return (
     <div className="app-layout">
-      <Sidebar user={user} activeTab={activeTab} onTabChange={setActiveTab} onLogout={handleLogout} />
+      <Sidebar 
+        user={user} 
+        activeTab={activeTab} 
+        onTabChange={setActiveTab} 
+        onLogout={handleLogout} 
+        currentSession={currentSession}
+        setCurrentSession={setCurrentSession}
+      />
 
       <div className="page-content">
         <PageHeader user={user} activeTab={activeTab} onTabChange={setActiveTab} />
@@ -237,7 +353,8 @@ export default function App() {
         <main className="page-main">
           {!isAdmin && (
             <>
-              {activeTab === 'chat'           && <StudentChatbot user={user} />}
+
+              {activeTab === 'chat'           && <StudentChatbot user={user} currentSession={currentSession} />}
               {activeTab === 'attendance'     && <StudentAttendance studentId={user.id} />}
               {activeTab === 'contests'       && <ContestTracker />}
               {activeTab === 'jobs'           && <JobsBoard role="student" studentId={user.id} />}
@@ -247,7 +364,8 @@ export default function App() {
           )}
           {isAdmin && (
             <>
-              {activeTab === 'admin_chat'      && <AdminChatbot user={user} />}
+              {activeTab === 'admin_chat'      && <AdminChatbot user={user} currentSession={currentSession} />}
+              {activeTab === 'exam_assessor'   && <AdminExamAssessor />} {/* <-- ADD THIS */}
               {activeTab === 'post_attendance' && <AdminAttendancePoster user={user} />}
               {activeTab === 'students'        && <AdminStudentManager />}
               {activeTab === 'applications'    && <AdminApplications />}
@@ -261,4 +379,3 @@ export default function App() {
     </div>
   );
 }
-
