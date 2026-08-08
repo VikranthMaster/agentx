@@ -1,3 +1,6 @@
+from dotenv import load_dotenv, find_dotenv
+load_dotenv(find_dotenv(), override=True)
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -17,6 +20,7 @@ from app.routes.hackathons import router as hackathons_router
 #added this
 from app.routes.chat_logs import router as chat_logs_router
 from app.routes.exam_assessment import router as exam_router
+from app.routes.roadmap import router as roadmap_router
 
 app = FastAPI(title="Smart Campus ERP Multi-Agent System")
 
@@ -38,10 +42,10 @@ def on_startup():
     except Exception as e:
         print("[Startup] Contest sync warning:", e)
 
-    # Fire-and-forget newsletter — daemon thread, never blocks startup
+    # Fire-and-forget newsletter — daemon thread, sends on every startup
     try:
         from app.services.newsletter_service import send_newsletter
-        send_newsletter()   # skips automatically if already sent today
+        send_newsletter()   # sends every time the server starts
     except Exception as e:
         print("[Startup] Newsletter warning:", e)
 
@@ -65,3 +69,4 @@ app.include_router(hackathons_router)
 #added this
 app.include_router(chat_logs_router)
 app.include_router(exam_router)
+app.include_router(roadmap_router)

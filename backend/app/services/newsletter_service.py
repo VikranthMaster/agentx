@@ -1,7 +1,8 @@
 """
-Newsletter service — Zoho SMTP over SSL (port 465).
+Newsletter service — Zoho SMTP over STARTTLS (port 587).
 send_newsletter() is designed to be called in a background thread so it
 never blocks FastAPI startup or request handling.
+Sends on every server startup — no "once per day" guard.
 """
 import os
 import smtplib
@@ -12,16 +13,13 @@ from email.mime.text import MIMEText
 from app.data.newsletter_content import NEWSLETTER_ITEMS, NEWSLETTER_SUBJECT
 from app.database import (
     get_active_subscribers,
-    already_sent_today,
     log_newsletter_sent,
 )
 
-# ── SMTP config (all from .env) ────────────────────────────────────────────────
-SMTP_HOST = os.getenv("SMTP_HOST", "smtp.zoho.in")
-SMTP_PORT = int(os.getenv("SMTP_PORT", "465"))
-SMTP_USER = os.getenv("SMTP_USER", "")
-SMTP_PASS = os.getenv("SMTP_PASSWORD", "")          # .env key is SMTP_PASSWORD
-FROM_EMAIL = os.getenv("SMTP_FROM_EMAIL", SMTP_USER)
+# SMTP defaults — actual values read fresh inside _send_sync at call time
+# so dotenv is guaranteed to have loaded before we use them.
+_SMTP_HOST_DEFAULT = "smtp.zoho.in"
+_SMTP_PORT_DEFAULT = 587
 FROM_NAME = "Smart Campus"
 
 
@@ -130,25 +128,53 @@ def render_html() -> str:
 def _send_sync(force: bool = False) -> dict:
     """
     Synchronous send function — runs inside a daemon thread so it never
-    blocks startup. Uses SMTP_SSL (port 465) as required by Zoho.
+    blocks startup. Uses SMTP + STARTTLS (port 587).
+    Always sends on every call — no once-per-day guard.
+    Reads SMTP credentials fresh from env at call-time (not import-time)
+    so they are always available after dotenv loads.
     """
-    if not force and already_sent_today():
-        return {"status": "skipped", "reason": "already sent today"}
+    curr_dir = os.path.dirname(os.path.abspath(__file__))
+    app_dir = os.path.dirname(curr_dir)
+    backend_dir = os.path.dirname(app_dir)
+    root_dir = os.path.dirname(backend_dir)
+
+    from dotenv import load_dotenv
+    for env_file in [
+        os.path.join(backend_dir, ".env"),
+        os.path.join(root_dir, ".env"),
+    ]:
+        if os.path.exists(env_file):
+            load_dotenv(env_file, override=True)
+
+    # ── Read SMTP config with robust defaults ──────────────────────────
+    smtp_host = os.getenv("SMTP_HOST") or "smtp.zoho.in"
+    smtp_port = int(os.getenv("SMTP_PORT") or "587")
+    smtp_user = os.getenv("SMTP_USER") or "valyrianminds@zohomail.in"
+    smtp_pass = os.getenv("SMTP_PASSWORD") or "yGy6ikpmsewd"
+    from_email = os.getenv("SMTP_FROM_EMAIL") or smtp_user
+
+    print(f"[Newsletter] SMTP config — host={smtp_host} port={smtp_port} user={smtp_user}")
 
     subscribers = get_active_subscribers()
     if not subscribers:
+        print("[Newsletter] No active subscribers, skipping.")
         return {"status": "skipped", "reason": "no subscribers"}
 
-    if not SMTP_USER or not SMTP_PASS:
+    if not smtp_user or not smtp_pass:
+        print("[Newsletter] SMTP credentials missing in .env, skipping.")
         return {"status": "skipped", "reason": "SMTP credentials not configured in .env"}
 
     html = render_html()
     sent, failed = 0, []
 
     try:
-        # Port 465 = SSL-from-the-start, so use SMTP_SSL (not SMTP + starttls)
-        server = smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT)
-        server.login(SMTP_USER, SMTP_PASS)
+        # Port 587 = STARTTLS — plain SMTP then upgrade to TLS
+        server = smtplib.SMTP(smtp_host, smtp_port, timeout=30)
+        server.ehlo()
+        server.starttls()
+        server.ehlo()
+        server.login(smtp_user, smtp_pass)
+        print(f"[Newsletter] SMTP connected to {smtp_host}:{smtp_port} via STARTTLS")
     except Exception as e:
         print(f"[Newsletter] SMTP login failed: {e}")
         return {"status": "error", "message": f"SMTP login failed: {e}"}
@@ -157,10 +183,10 @@ def _send_sync(force: bool = False) -> dict:
         try:
             msg = MIMEMultipart("alternative")
             msg["Subject"] = NEWSLETTER_SUBJECT
-            msg["From"] = f"{FROM_NAME} <{FROM_EMAIL}>"
+            msg["From"] = f"{FROM_NAME} <{from_email}>"
             msg["To"] = email
             msg.attach(MIMEText(html, "html"))
-            server.sendmail(FROM_EMAIL, email, msg.as_string())
+            server.sendmail(from_email, email, msg.as_string())
             sent += 1
         except Exception as e:
             failed.append({"email": email, "error": str(e)})

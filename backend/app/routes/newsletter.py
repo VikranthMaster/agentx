@@ -1,7 +1,13 @@
 from typing import Optional
 from fastapi import APIRouter, Form, Request
 from pydantic import BaseModel
-from app.database import add_newsletter_subscriber, remove_newsletter_subscriber
+from app.database import (
+    add_newsletter_subscriber,
+    remove_newsletter_subscriber,
+    get_active_subscribers,
+    already_sent_today,
+    get_db_connection,
+)
 from app.services.newsletter_service import send_newsletter_sync
 
 router = APIRouter(tags=["Newsletter"])
@@ -59,6 +65,44 @@ async def unsubscribe(request: Request):
         return {"status": "error", "message": str(e)}
 
 
+@router.get("/api/newsletter/subscribers")
+def list_subscribers():
+    """Admin: list all newsletter subscribers with their status."""
+    try:
+        conn = get_db_connection()
+        rows = conn.execute(
+            "SELECT email, student_id, subscribed_at, active FROM newsletter_subscribers ORDER BY subscribed_at DESC"
+        ).fetchall()
+        conn.close()
+        return {
+            "status": "success",
+            "total": len(rows),
+            "active": sum(1 for r in rows if r["active"]),
+            "subscribers": [dict(r) for r in rows],
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@router.get("/api/newsletter/status")
+def newsletter_status():
+    """Admin: check whether newsletter was already sent today and view send log."""
+    try:
+        conn = get_db_connection()
+        logs = conn.execute(
+            "SELECT * FROM newsletter_log ORDER BY id DESC LIMIT 10"
+        ).fetchall()
+        conn.close()
+        return {
+            "status": "success",
+            "already_sent_today": already_sent_today(),
+            "active_subscribers": get_active_subscribers(),
+            "send_log": [dict(l) for l in logs],
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
 @router.post("/api/newsletter/send-now")
 def send_now(force: bool = True):
     """
@@ -68,3 +112,4 @@ def send_now(force: bool = True):
     """
     result = send_newsletter_sync(force=force)
     return result
+

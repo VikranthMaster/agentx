@@ -1,4 +1,6 @@
 import os
+import asyncio
+import functools
 from fastapi import APIRouter, BackgroundTasks, File, UploadFile, Form
 from app.database import get_db_connection
 from app.schemas.models import AdminChatRequest
@@ -50,8 +52,12 @@ async def chat_student_multimodal(
     # Log the user turn
     log_message(student_id, "student", "user", query, session_id=session_id)
 
-    # Process
-    result = process_student_query(student_id, query)
+    # ── Run blocking LLM call in a thread-pool — never blocks the event loop ──
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(
+        None,
+        functools.partial(process_student_query, student_id, query)
+    )
 
     # Log the assistant reply
     log_message(student_id, "student", "assistant", result.get("reply", ""),
